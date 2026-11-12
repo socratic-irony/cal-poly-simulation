@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+.venv/
+
+# build output
+dist/
+
+# large raw downloads / derived caches (rebuilt by tools/)
+data/raw/
+
+# development screenshot captures (357 files, ~320 MB)
+screenshots/*.jpg
+screenshots/*.png
+screenshots/*.mp4
+
+# macOS / editor cruft
+.DS_Store
+*.log
