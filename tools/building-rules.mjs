@@ -165,5 +165,38 @@ export function styleFor(b) {
   s.trim = stuccoLike && s.kind !== 'ag' && s.kind !== 'shed' ? 1 : 0;
   s.belt = stuccoLike && (s.kind === 'academic' || s.kind === 'dorm' || s.kind === 'church') && s.h > 7 ? 1 : 0;
   s.recess = s.recessX ? s.recessX : s.kind === 'house' ? 0.13 : (s.kind === 'ag' || s.kind === 'shed' || s.kind === 'canopy') ? 0 : stuccoLike ? 0.24 : 0.16;
+
+  // ---------------------------------------------------------------------------------------------
+  // High-profile buildings matched against reference photos. These run last so they win over the
+  // generic class rules above.
+  // Warren J. Baker Center: terracotta rainscreen panels, deep ribbon glazing, glass entry atrium.
+  if (/Warren J\. Baker/i.test(name)) {
+    s.wall = 'terracotta_panel'; s.pal = 0; s.panel = 1; s.lites = 0;
+    s.win = 'ribbon'; s.winSpacing = 3.6; s.floorH = 4.2;
+    s.parapet = 0.65; s.coping = 1; s.recess = 0.22;
+    s.atrium = { w: 12, d: 4.5, h: 9 };
+  }
+  // William & Linda Frost Center: light metal/concrete panels, continuous lab glazing, glazed entry.
+  if (/William and Linda Frost Center/i.test(name)) {
+    s.wall = 'concrete_light'; s.pal = 0; s.panel = 1; s.lites = 0;
+    s.win = 'ribbonL'; s.winSpacing = 2.8; s.floorH = 4.3;
+    s.parapet = 0.55; s.coping = 1; s.fins = 2.8; s.recess = 0.20;
+    s.atrium = { w: 10, d: 4, h: 8.5 };
+  }
+  // Christopher Cohan Performing Arts Center: beige concrete panels, silver standing-seam roofs with
+  // the photographed red fascia, large blank fly-tower tiers and a big glazed entrance lobby.
+  if (/Christopher Cohan|Performing Arts Center/i.test(name)) {
+    s.wall = 'metal_silver_glass'; s.pal = 0; s.panel = 0; s.stone = 0; s.lites = 0;
+    s.win = 'curtain'; s.winSpacing = 3.0; s.winW = 1.6; s.winH = 2.2; s.floorH = 4.8;
+    s.parapet = 0.55; s.coping = 0; s.tierBlank = 1; s.tierWall = 'bronze_panel'; s.tierPanel = 1;
+    s.flatForce = 'roof_metal_silver';
+    s.fascia = 'fascia_red';
+    s.arcade = undefined; s.accent = undefined;
+    s.atrium = { w: 16, d: 5, h: 12, curved: true };
+    s.drum = { r: 6.5, h: 18, off: 0, at: [342, 176] };
+    // the signature swept airfoil roof over the glass base (see reference photos)
+    s.forceH = 15; s.noTiers = 1;
+    s.airfoil = { L: 96, W: 46, rise: 12, sweep: 10, ang: 3 * Math.PI / 4, lift: 0.35, offset: -14 };
+  }
   return s;
 }

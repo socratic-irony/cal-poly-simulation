@@ -62,10 +62,25 @@ export function createMaterials(manifest, anisotropy = 8) {
   proc('brick_buff', 'brick', { brick: ['#b88b5e', '#a87c52', '#c9a074'] });
   proc('brick_terracotta', 'brick', { brick: ['#b9714a', '#a8643f', '#c78258'] });   // Baker Center rainscreen
   proc('metal_silver', 'metal', { metal: '#aeb3b6' });
+  proc('metal_silver_glass', 'metal', { metal: '#aeb3b6', glassReflect: 0.38 });
   proc('metal_dark', 'metal', { metal: '#4c4f52' });
+  proc('metal_bronze', 'metal', { metal: '#6d6459' });
   proc('metal_red', 'metal', { metal: '#7d2e25' });
+  // flat rainscreen / precast panels (Baker Center terracotta, PAC fly-tower bronze-grey)
+  {
+    const mk = (key, color) => {
+      const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.03, normalMap: flatNormalTexture() });
+      patchWallMaterial(m, { mode: 'panel', panel: color, glassReflect: key === 'terracotta_panel' ? 0.30 : 0.2 });
+      m.userData.size = 1; mats[key] = m;
+    };
+    mk('terracotta_panel', '#b26a47');
+    mk('bronze_panel', '#887d6f');
+  }
   mats.rail = new THREE.MeshStandardMaterial({ color: 0x2e3238, metalness: 0.75, roughness: 0.42 });
   mats.trim = new THREE.MeshStandardMaterial({ color: 0xe6dccb, roughness: 0.75, metalness: 0 });
+  // landmark detailing: PAC's red roof fascia, pale parapet coping / cast-stone banding
+  mats.fascia_red = new THREE.MeshStandardMaterial({ color: 0x8b2b20, metalness: 0.35, roughness: 0.48 });
+  mats.coping = new THREE.MeshStandardMaterial({ color: 0xd7d1c3, roughness: 0.8, metalness: 0 });
   {
     // clock face for the Business / Education tower (white dial, black Roman-style ticks and hands, bronze bezel)
     const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
@@ -207,6 +222,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
   const doors = [];
   const signs = [];
 
+  const bandFlag = (st) => st.stone ? 2 : st.panel ? 3 : st.belt ? 1 : 0;
   const roofKey = (s) => {
     if (s.roofMat === 'metal_silver') return 'roof_metal_silver';
     if (s.roofMat === 'metal_red') return 'roof_metal_red';
@@ -259,6 +275,9 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
         s._lidarShape = true;
       }
     }
+    // landmark massing overrides (post-2018 buildings / bespoke roof forms)
+    if (s.forceH) { s.h = s.forceH; s.floors = Math.max(1, Math.round(s.h / s.floorH)); }
+    if (s.noTiers && lb) { lb.tiers = null; lb.vaults = null; }
     const yBot = Math.min(gMin, pad) - 1.0;
     const vaults = (useL && lb.vaults) || [];
     // volumes that replace the flat-roof logic locally (vaults, tile wings): no tiers / rooftop units inside them
@@ -330,13 +349,16 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       const ek = len < s.winW + 0.9 ? 0 : kind;
       const hasDoor = i === doorEdge;
       const acc = s.accent === 'red' ? 1 : s.accent === 'green' ? 2 : 0;
-      const A = [0, pad, sp, s.floorH], B = [s.winW, s.winH, ek, seed], C = [s.h, acc, hasDoor ? doorU : 0, hasDoor ? 1.15 : 0], D = [s.stone ? 2 : s.belt ? 1 : 0, (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
+      const A = [0, pad, sp, s.floorH], B = [s.winW, s.winH, ek, seed], C = [s.h, acc, hasDoor ? doorU : 0, hasDoor ? 1.15 : 0], D = [bandFlag(s), (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
       const ux = dx / len, uz = dz / len, ang = Math.atan2(dz, dx);
       if (hasDoor && b.n && ['academic', 'dorm', 'church', 'retail'].includes(s.kind)) {
         const big = b.a > 650 || s.floors >= 3;
         signs.push({ x: p[0] + ux * doorU, z: p[1] + uz * doorU, ux, uz, nx, nz, y: pad + (big ? 3.32 : 3.65), out: big ? 0.45 : 0.03, name: b.n });
       }
       if (hasDoor && s.arcade && len > 8) { doors.push([p[0] + ux * doorU + nx * 3.5, p[1] + uz * doorU + nz * 3.5]); }
+      else if (hasDoor && s.atrium) {
+        doors.push([p[0] + ux * doorU + nx * (s.atrium.d + 1.2), p[1] + uz * doorU + nz * (s.atrium.d + 1.2)]);
+      }
       else if (hasDoor) {
         if (b.a > 650 || s.floors >= 3) {
           addPortal(bucket(wallKey), bucket('concrete_plain'), bucket('rail'), { p, ux, uz, nx, nz, doorU, pad, wallH: s.h, ang, pal: s.pal || 0, seed });
@@ -438,6 +460,22 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       wE.tri(v1, v0, v3); wE.tri(v1, v3, v2);
     }
 
+    // ---- projecting glazed entry atrium (Baker / Frost / PAC) on the chosen entrance bay
+    if (s.atrium && doorEdge >= 0) {
+      const i = doorEdge;
+      const p = [P[i * 2], P[i * 2 + 1]], q = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
+      const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz) || 1;
+      const ux = dx / len, uz = dz / len, nx = dz / len, nz = -dx / len;
+      addAtrium(bucket, wallKey, mats, s, p, ux, uz, nx, nz, doorU, pad, seed, ts, s.pal || 0, Math.atan2(dz, dx));
+    }
+    if (s.drum && doorEdge >= 0) {
+      const i = doorEdge;
+      const p = [P[i * 2], P[i * 2 + 1]], q = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
+      const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz) || 1;
+      const ux = dx / len, uz = dz / len, nx = dz / len, nz = -dx / len;
+      addDrum(bucket, wallKey, mats, s, p, ux, uz, nx, nz, doorU, pad, seed, ts, s.pal || 0);
+    }
+
     // ---- roofs
     if (flat) {
       const contour = []; for (let i = 0; i < n; i++) contour.push(new THREE.Vector2(P[i * 2], P[i * 2 + 1]));
@@ -469,6 +507,9 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
           pw.tri(v0, v1, v2); pw.tri(v0, v2, v3);
         }
       }
+      // crisp parapet coping + coloured fascia band (PAC red eaves, Baker / Frost pale coping)
+      if (s.coping) addEdgeBand(bucket('coping'), P, yTop + 0.01, 0.13, 0.52, 0, 1);
+      if (s.fascia) addEdgeBand(bucket(s.fascia), P, yTop - 0.55, 0.34, 0.17, 0.07, 1);
       // rooftop equipment measured by LiDAR (HVAC units, stair/elevator penthouses)
       if (useL && lb.units && lb.units.length) {
         for (const u of lb.units) {
@@ -500,6 +541,9 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       if (hasPoly) addPolyRoof(rb, P, wallTop, s, b.a, bucket('trim'));
       else for (const r of b.rects) addPitchedRoof(rb, wb, r, wallTop, s, o, ts, wallKey, bucket('trim'));
     }
+
+    // ---- bespoke swept airfoil roof (PAC): a large wing over the glass base
+    if (flat && s.airfoil) addAirfoilRoof(bucket('roof_metal_silver'), bucket('fascia_red'), bucket('metal_silver'), P, wallTop + (s.parapet || 0) + (s.airfoil.lift || 0), s.airfoil);
 
     // ---- big flat sun canopy floating above the roof on slim posts (Engineering IV group)
     if (s.canopy && flat) {
@@ -534,7 +578,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
 
     // ---- taller parts measured by LiDAR (stair towers, upper storeys, fly towers ...) stacked on the base volume
     let topH = s.h;
-    if (useL && lb.tiers && flat) {
+    if (useL && lb.tiers && flat && !s.noTiers) {
       const tiers = lb.tiers.slice().sort((a, b2) => a.h - b2.h);
       let prevH = s.h;
       for (const t of tiers) {
@@ -544,7 +588,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
           { let rx = 0, rz = 0; const rn = ring.length / 2; for (let i = 0; i < ring.length; i += 2) { rx += ring[i]; rz += ring[i + 1]; } if (inVault(rx / rn, rz / rn, -1)) continue; }
           let ar = 0; for (let i = 0; i < ring.length; i += 2) { const j = (i + 2) % ring.length; ar += ring[i] * ring[j + 1] - ring[j] * ring[i + 1]; }
           if (ar < 0) { const rr = []; for (let i = ring.length - 2; i >= 0; i -= 2) rr.push(ring[i], ring[i + 1]); ring = rr; }
-          emitPrism(ring, pad + prevH - 0.06, pad + t.h, t.h);
+          emitPrism(ring, pad + prevH - 0.06, pad + t.h, t.h, !!s.tierBlank);
         }
         prevH = t.h; topH = Math.max(topH, t.h);
       }
@@ -633,7 +677,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
           const mx = (p[0] + q[0]) / 2, mz = (p[1] + q[1]) / 2;
           if ((mx - rcx) * nx + (mz - rcz) * nz < 0) { nx = -nx; nz = -nz; }   // outward
           const cols = Math.max(1, Math.round(len / spBase)), sp = len / cols, ek = len < s.winW + 0.9 ? 0 : kind;
-          const Bw = [s.winW, s.winH, ek, seed], Cw = [Math.max(eave, s.h), 0, 0, 0], Dw = [s.stone ? 2 : s.belt ? 1 : 0, (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
+          const Bw = [s.winW, s.winH, ek, seed], Cw = [Math.max(eave, s.h), 0, 0, 0], Dw = [bandFlag(s), (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
           const y0 = wallTop - 0.06;
           const v0 = wb.vert(p[0], y0, p[1], nx, 0, nz, 0, y0 / ts, [0, pad, sp, s.floorH], Bw, Cw, Dw);
           const v1 = wb.vert(q[0], y0, q[1], nx, 0, nz, len / ts, y0 / ts, [len, pad, sp, s.floorH], Bw, Cw, Dw);
@@ -659,7 +703,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
         const C = (u, v) => [tw.c[0] + u * ca - v * sa, tw.c[1] + u * sa + v * ca];
         const ring = [C(-hw2, -hd2), C(hw2, -hd2), C(hw2, hd2), C(-hw2, hd2)];
         const y0 = wallTop - 0.3, yE = pad + tw.eave;
-        const Dt = [s.stone ? 2 : s.belt ? 1 : 0, (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
+        const Dt = [bandFlag(s), (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
         for (let i = 0; i < 4; i++) {
           const p = ring[i], q = ring[(i + 1) % 4];
           const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz);
@@ -707,34 +751,42 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
         topH = Math.max(topH, tw.top);
       }
     }
-    function emitPrism(R2, y0, y1, topRel) {
+    function emitPrism(R2, y0, y1, topRel, blank = false) {
       const m = R2.length / 2, par = 0.45;
+      const tw = (blank && s.tierWall) ? bucket(s.tierWall) : wb;
+      const tts = (blank && s.tierWall) ? (mats[s.tierWall]?.userData.size || ts) : ts;
       for (let i = 0; i < m; i++) {
         const p = [R2[i * 2], R2[i * 2 + 1]], q = [R2[((i + 1) % m) * 2], R2[((i + 1) % m) * 2 + 1]];
         const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz);
         if (len < 0.05) continue;
         const nx = dz / len, nz = -dx / len;
         const cols = Math.max(1, Math.round(len / spBase)), sp = len / cols;
-        const ek = len < s.winW + 0.9 ? 0 : kind;
-        const B = [s.winW, s.winH, ek, seed], C = [topRel, 0, 0, 0], D = [s.stone ? 2 : s.belt ? 1 : 0, (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
-        const v0 = wb.vert(p[0], y0, p[1], nx, 0, nz, 0, y0 / ts, [0, pad, sp, s.floorH], B, C, D);
-        const v1 = wb.vert(q[0], y0, q[1], nx, 0, nz, len / ts, y0 / ts, [len, pad, sp, s.floorH], B, C, D);
-        const v2 = wb.vert(q[0], y1 + par, q[1], nx, 0, nz, len / ts, (y1 + par) / ts, [len, pad, sp, s.floorH], B, C, D);
-        const v3 = wb.vert(p[0], y1 + par, p[1], nx, 0, nz, 0, (y1 + par) / ts, [0, pad, sp, s.floorH], B, C, D);
-        wb.tri(v1, v0, v3); wb.tri(v1, v3, v2);
+        const ek = blank ? 0 : (len < s.winW + 0.9 ? 0 : kind);
+        const B = [s.winW, s.winH, ek, seed], C = [topRel, 0, 0, 0], D = [(blank && s.tierPanel) ? 3 : bandFlag(s), (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
+        const v0 = tw.vert(p[0], y0, p[1], nx, 0, nz, 0, y0 / tts, [0, pad, sp, s.floorH], B, C, D);
+        const v1 = tw.vert(q[0], y0, q[1], nx, 0, nz, len / tts, y0 / tts, [len, pad, sp, s.floorH], B, C, D);
+        const v2 = tw.vert(q[0], y1 + par, q[1], nx, 0, nz, len / tts, (y1 + par) / tts, [len, pad, sp, s.floorH], B, C, D);
+        const v3 = tw.vert(p[0], y1 + par, p[1], nx, 0, nz, 0, (y1 + par) / tts, [0, pad, sp, s.floorH], B, C, D);
+        tw.tri(v1, v0, v3); tw.tri(v1, v3, v2);
         // parapet inner face
-        const w0 = wb.vert(p[0], y1, p[1], -nx, 0, -nz, 0, y1 / ts), w1 = wb.vert(q[0], y1, q[1], -nx, 0, -nz, len / ts, y1 / ts);
-        const w2 = wb.vert(q[0], y1 + par, q[1], -nx, 0, -nz, len / ts, (y1 + par) / ts), w3 = wb.vert(p[0], y1 + par, p[1], -nx, 0, -nz, 0, (y1 + par) / ts);
-        wb.tri(w0, w1, w2); wb.tri(w0, w2, w3);
+        const w0 = tw.vert(p[0], y1, p[1], -nx, 0, -nz, 0, y1 / tts), w1 = tw.vert(q[0], y1, q[1], -nx, 0, -nz, len / tts, y1 / tts);
+        const w2 = tw.vert(q[0], y1 + par, q[1], -nx, 0, -nz, len / tts, (y1 + par) / tts), w3 = tw.vert(p[0], y1 + par, p[1], -nx, 0, -nz, 0, (y1 + par) / tts);
+        tw.tri(w0, w1, w2); tw.tri(w0, w2, w3);
       }
-      const contour = []; for (let i = 0; i < m; i++) contour.push(new THREE.Vector2(R2[i * 2], R2[i * 2 + 1]));
-      let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { tris = []; }
-      const base = rb.pos.length / 3;
-      for (const v of contour) rb.vert(v.x, y1 + 0.02, v.y, 0, 1, 0, v.x, v.y);
-      for (const t of tris) {
-        const a = contour[t[0]], bb = contour[t[1]], c = contour[t[2]];
-        const cr = (bb.x - a.x) * (c.y - a.y) - (bb.y - a.y) * (c.x - a.x);
-        if (cr < 0) rb.tri(base + t[0], base + t[1], base + t[2]); else rb.tri(base + t[0], base + t[2], base + t[1]);
+      // coloured fascia just below the upper-storey parapet + pale coping on top
+      if (s.fascia) addEdgeBand(bucket(s.fascia), R2, y1 + par - 0.55, 0.34, 0.17, 0.07, 1);
+      if (s.coping) addEdgeBand(bucket('coping'), R2, y1 + par + 0.01, 0.13, 0.52, 0, 1);
+      if (s.curvedCap) addCurvedCap(rb, R2, y1 + par, s.curvedCap, 1);
+      else {
+        const contour = []; for (let i = 0; i < m; i++) contour.push(new THREE.Vector2(R2[i * 2], R2[i * 2 + 1]));
+        let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { tris = []; }
+        const base = rb.pos.length / 3;
+        for (const v of contour) rb.vert(v.x, y1 + 0.02, v.y, 0, 1, 0, v.x, v.y);
+        for (const t of tris) {
+          const a = contour[t[0]], bb = contour[t[1]], c = contour[t[2]];
+          const cr = (bb.x - a.x) * (c.y - a.y) - (bb.y - a.y) * (c.x - a.x);
+          if (cr < 0) rb.tri(base + t[0], base + t[1], base + t[2]); else rb.tri(base + t[0], base + t[2], base + t[1]);
+        }
       }
     }
 
@@ -796,6 +848,113 @@ function addBox(bk, cx, y0, cz, w, h, d, ang, ts, attrs) {
   if (cr < 0) { bk.tri(t0, t1, t2); bk.tri(t0, t2, t3); } else { bk.tri(t0, t2, t1); bk.tri(t0, t3, t2); }
 }
 
+// run a box along each edge of a footprint (parapet coping / coloured roof fascia bands)
+function addEdgeBand(bk, P, y, h, depth, off, ts) {
+  const n = P.length / 2;
+  for (let i = 0; i < n; i++) {
+    const p = [P[i * 2], P[i * 2 + 1]], q = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
+    const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz);
+    if (len < 0.4) continue;
+    const nx = dz / len, nz = -dx / len;
+    addBox(bk, (p[0] + q[0]) / 2 + nx * off, y, (p[1] + q[1]) / 2 + nz * off, len + 0.06, h, depth, Math.atan2(dz, dx), ts);
+  }
+}
+
+// glazed entry atrium: a projecting curtain-wall box on the entrance bay, with a metal roof + fascia
+function addAtrium(makeBucket, wallKey, mats, s, p, ux, uz, nx, nz, doorU, pad, seed, ts, pal, ang) {
+  const { w, d, h } = s.atrium;
+  const cx = p[0] + ux * doorU + nx * (d / 2), cz = p[1] + uz * doorU + nz * (d / 2);
+  const y0 = pad - 0.06, fh = s.floorH || 4.0;
+  const at = [
+    [0, pad, 1, fh],
+    [s.winW || 1.6, s.winH || 2.0, 6, seed],       // kind 6 = curtain wall (glass + mullions)
+    [h, 0, 0, 0],
+    [0, 0, 0.10, pal / 7],
+  ];
+  addBox(makeBucket(wallKey), cx, y0, cz, w, h, d, ang, ts, at);
+  const yR = pad + h;
+  addBox(makeBucket('concrete_plain'), cx, y0 - 0.24, cz, w + 0.28, 0.28, d + 0.28, ang, 1.5);
+  if (!s.atrium.curved) {
+    addBox(makeBucket(s.fascia || 'fascia_red'), cx, yR - 0.30, cz, w + 0.62, 0.34, d + 0.62, ang, 1);
+    addBox(makeBucket('roof_metal_silver'), cx, yR + 0.02, cz, w + 0.55, 0.22, d + 0.55, ang, 1);
+  } else {
+    // shallow curved standing-seam canopy (PAC): arch across the width, swept through the depth,
+    // with the red fascia following both curved edges
+    const vb = makeBucket('roof_metal_silver'), fb = makeBucket(s.fascia || 'fascia_red');
+    const NS = 20, rise = Math.min(4.2, d * 0.75 + 1.1);
+    const pt = (t, dep) => {
+      const u = (t - 0.5) * w, v = dep * d / 2;
+      return [cx + ux * u + nx * v, yR + rise * Math.sin(Math.PI * t), cz + uz * u + nz * v];
+    };
+    const nu = NS + 1, base = vb.pos.length / 3;
+    for (let dep = 0; dep < 2; dep++) {
+      for (let i = 0; i <= NS; i++) {
+        const t = i / NS, [x, y, z] = pt(t, dep ? 1 : -1);
+        const dy = rise * Math.PI * Math.cos(Math.PI * t), dx = w;
+        let nX = -dy * ux, nY = dx, nZ = -dy * uz;
+        const nl = Math.hypot(nX, nY, nZ) || 1;
+        vb.vert(x, y, z, nX / nl, nY / nl, nZ / nl, t * w, dep * d);
+      }
+    }
+    for (let i = 0; i < NS; i++) {
+      const a = base + i, b = base + i + 1, c = base + nu + i + 1, e = base + nu + i;
+      const A = [vb.pos[a * 3], vb.pos[a * 3 + 1], vb.pos[a * 3 + 2]];
+      const B = [vb.pos[b * 3], vb.pos[b * 3 + 1], vb.pos[b * 3 + 2]];
+      const C = [vb.pos[c * 3], vb.pos[c * 3 + 1], vb.pos[c * 3 + 2]];
+      const cy = (B[1] - A[1]) * (C[2] - A[2]) - (B[2] - A[2]) * (C[1] - A[1]);
+      if (cy < 0) { vb.tri(a, c, b); vb.tri(a, e, c); } else { vb.tri(a, b, c); vb.tri(a, c, e); }
+      for (const dep of [1, -1]) {
+        const [x0, y0a, z0] = pt(i / NS, dep), [x1, y1a, z1] = pt((i + 1) / NS, dep);
+        const L = Math.hypot(x1 - x0, z1 - z0) || 1;
+        addBox(fb, (x0 + x1) / 2, (y0a + y1a) / 2 - 0.16, (z0 + z1) / 2, L + 0.06, 0.30, 0.20, Math.atan2(z1 - z0, x1 - x0), 1);
+      }
+    }
+  }
+  // slim mullion posts at the outer corners
+  for (const sx of [-1, 1]) {
+    const px = cx + ux * (w / 2 - 0.06) * sx + nx * (d / 2 - 0.08);
+    const pz = cz + uz * (w / 2 - 0.06) * sx + nz * (d / 2 - 0.08);
+    addBox(makeBucket('rail'), px, y0, pz, 0.10, h, 0.10, ang, 1);
+  }
+}
+
+// cylindrical glazed corner drum (PAC lobby): curtain-wall cylinder with a silver cap and red fascia ring
+function addDrum(makeBucket, wallKey, mats, s, p, ux, uz, nx, nz, doorU, pad, seed, ts, pal) {
+  const { r, h, off = 0 } = s.drum;
+  const cx = s.drum.at ? s.drum.at[0] : p[0] + ux * (doorU + off) + nx * (r * 0.45);
+  const cz = s.drum.at ? s.drum.at[1] : p[1] + uz * (doorU + off) + nz * (r * 0.45);
+  const y0 = pad - 0.06, fh = s.floorH || 4.0, N = 28;
+  const wb = makeBucket(wallKey), bb = makeBucket('roof_metal_silver'), fb = makeBucket(s.fascia || 'fascia_red');
+  const D = [0, 0, 0.10, pal / 7];
+  const B = [s.winW || 1.6, s.winH || 2.0, 6, seed], C = [h, 0, 0, 0];
+  const circ = 2 * Math.PI * r;
+  for (let i = 0; i < N; i++) {
+    const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
+    const p0 = [cx + c0 * r, cz + s0 * r], p1 = [cx + c1 * r, cz + s1 * r];
+    const u0 = (i / N) * circ, u1 = ((i + 1) / N) * circ;
+    const v0 = wb.vert(p0[0], y0, p0[1], c0, 0, s0, u0 / ts, y0 / ts, [u0, pad, 3.2, fh], B, C, D);
+    const v1 = wb.vert(p1[0], y0, p1[1], c1, 0, s1, u1 / ts, y0 / ts, [u1, pad, 3.2, fh], B, C, D);
+    const v2 = wb.vert(p1[0], pad + h, p1[1], c1, 0, s1, u1 / ts, (pad + h) / ts, [u1, pad, 3.2, fh], B, C, D);
+    const v3 = wb.vert(p0[0], pad + h, p0[1], c0, 0, s0, u0 / ts, (pad + h) / ts, [u0, pad, 3.2, fh], B, C, D);
+    wb.tri(v0, v1, v2); wb.tri(v0, v2, v3);
+    // red fascia ring around the top rim
+    const f0 = fb.vert(p0[0], pad + h - 0.32, p0[1], c0, 0, s0, 0, 0), f1 = fb.vert(p1[0], pad + h - 0.32, p1[1], c1, 0, s1, 0, 0);
+    const f2 = fb.vert(p1[0], pad + h + 0.05, p1[1], c1, 0, s1, 0, 0), f3 = fb.vert(p0[0], pad + h + 0.05, p0[1], c0, 0, s0, 0, 0);
+    fb.tri(f0, f1, f2); fb.tri(f0, f2, f3);
+  }
+  // silver cap disc
+  const cbase = bb.pos.length / 3;
+  bb.vert(cx, pad + h + 0.06, cz, 0, 1, 0, 0, 0);
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    bb.vert(cx + Math.cos(a) * (r + 0.15), pad + h + 0.06, cz + Math.sin(a) * (r + 0.15), 0, 1, 0, Math.cos(a), Math.sin(a));
+  }
+  for (let i = 0; i < N; i++) bb.tri(cbase, cbase + 1 + i, cbase + 2 + i);
+  // plinth
+  addBox(makeBucket('concrete_plain'), cx, y0 - 0.22, cz, r * 2.2, 0.26, r * 2.2, 0, 1.5);
+}
+
 // recessed-look entrance: stucco portal frame, landing + two steps, steel handrails
 function addPortal(wb, cb, rl, o) {
   const { p, ux, uz, nx, nz, doorU, pad, wallH, ang, pal, seed } = o;
@@ -836,6 +995,165 @@ function addCap(rb, a, b, wHalf, slope) {
   const aT = [a[0], a[1] + lift, a[2]], bT = [b[0], b[1] + lift, b[2]];
   quad(aL, bL, bT, aT, wHalf); quad(aR, bR, bT, aT, wHalf);
 }
+
+// Large swept airfoil / wing roof (the PAC's signature): a leaf-shaped plan with a cambered
+// cross-section, rising along the length and finished with a continuous red edge.
+function addAirfoilRoof(rb, fb, ub, P, y0, opts) {
+  const n = P.length / 2;
+  let cx = 0, cz = 0, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = P[i * 2], z = P[i * 2 + 1];
+    cx += x; cz += z;
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+  }
+  cx /= n; cz /= n;
+  const ew = maxX - minX, ed = maxZ - minZ;
+  const ang = opts.ang != null ? opts.ang : (ew >= ed ? 0 : Math.PI / 2);
+  const L = opts.L || Math.max(24, (ew >= ed ? ew : ed) * 0.84);
+  const W = opts.W || Math.max(14, Math.min(ew, ed) * 0.66);
+  const rise = opts.rise || Math.min(16, W * 0.30);
+  const sweep = opts.sweep != null ? opts.sweep : L * 0.10;
+  const ca = Math.cos(ang), sa = Math.sin(ang), ux = [ca, sa], vx = [-sa, ca];
+  const offV = opts.offset || 0;
+  const NU = 32, NV = 20;
+  const grid = [];
+  for (let i = 0; i <= NU; i++) {
+    const u = -1 + (2 * i) / NU;
+    const halfW = (W / 2) * (0.12 + 0.88 * Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(u), 8.0))));
+    const sweepOff = sweep * u;
+    const riseU = rise * (0.38 + 0.62 * ((u + 1) / 2));
+    const row = [];
+    for (let j = 0; j <= NV; j++) {
+      const v = -1 + (2 * j) / NV, t = (v + 1) / 2;
+      // cambered airfoil: sharp leading edge at v=-1, crest ~40 % back, thin trailing edge
+      const prof = Math.pow(Math.sin(Math.PI * Math.pow(t, 0.55)), 0.75) * (1.0 - 0.55 * t);
+      const y = y0 + riseU * prof;
+      const x = cx + ux[0] * (u * L / 2) + vx[0] * (v * halfW + sweepOff + offV);
+      const z = cz + ux[1] * (u * L / 2) + vx[1] * (v * halfW + sweepOff + offV);
+      row.push([x, y, z]);
+    }
+    grid.push(row);
+  }
+  // smooth vertex normals from surface derivatives
+  const idx = [], nrm = [];
+  for (let i = 0; i <= NU; i++) {
+    idx.push([]); nrm.push([]);
+    for (let j = 0; j <= NV; j++) {
+      const p = grid[i][j];
+      const a = grid[Math.max(0, i - 1)][j], b = grid[Math.min(NU, i + 1)][j];
+      const c = grid[i][Math.max(0, j - 1)], d = grid[i][Math.min(NV, j + 1)];
+      const du = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], dv = [d[0] - c[0], d[1] - c[1], d[2] - c[2]];
+      let nx = dv[1] * du[2] - dv[2] * du[1], ny = dv[2] * du[0] - dv[0] * du[2], nz = dv[0] * du[1] - dv[1] * du[0];
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      idx[i].push(rb.vert(p[0], p[1], p[2], nx / nl, ny / nl, nz / nl, ((i / NU) * L), ((j / NV) * W)));
+    }
+  }
+  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
+    const a = idx[i][j], b = idx[i + 1][j], c = idx[i + 1][j + 1], d = idx[i][j + 1];
+    const A = grid[i][j], B = grid[i + 1][j], C = grid[i + 1][j + 1];
+    const cy = (B[1] - A[1]) * (C[2] - A[2]) - (B[2] - A[2]) * (C[1] - A[1]);
+    if (cy > 0) { rb.tri(a, b, c); rb.tri(a, c, d); } else { rb.tri(a, c, b); rb.tri(a, d, c); }
+  }
+  // underside / soffit, offset down so the wing reads as a solid airfoil
+  const uIdx = [];
+  for (let i = 0; i <= NU; i++) {
+    uIdx.push([]);
+    for (let j = 0; j <= NV; j++) {
+      const p = grid[i][j];
+      const a = grid[Math.max(0, i - 1)][j], b = grid[Math.min(NU, i + 1)][j];
+      const c = grid[i][Math.max(0, j - 1)], d = grid[i][Math.min(NV, j + 1)];
+      const du = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], dv = [d[0] - c[0], d[1] - c[1], d[2] - c[2]];
+      let nx = dv[1] * du[2] - dv[2] * du[1], ny = dv[2] * du[0] - dv[0] * du[2], nz = dv[0] * du[1] - dv[1] * du[0];
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      uIdx[i].push(ub.vert(p[0], p[1] - 0.45, p[2], -nx / nl, -ny / nl, -nz / nl, ((i / NU) * L), ((j / NV) * W)));
+    }
+  }
+  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
+    const a = uIdx[i][j], b = uIdx[i + 1][j], c = uIdx[i + 1][j + 1], d = uIdx[i][j + 1];
+    ub.tri(a, c, b); ub.tri(a, d, c);
+  }
+  // continuous red fascia around the airfoil edge (the bright lip in the photos)
+  const per = [];
+  for (let i = 0; i <= NU; i++) per.push(grid[i][0]);
+  for (let j = 1; j <= NV; j++) per.push(grid[NU][j]);
+  for (let i = NU - 1; i >= 0; i--) per.push(grid[i][NV]);
+  for (let j = NV - 1; j >= 1; j--) per.push(grid[0][j]);
+  for (let k = 0; k < per.length - 1; k++) {
+    const a = per[k], b = per[k + 1];
+    const ex = b[0] - a[0], ez = b[2] - a[2], el = Math.hypot(ex, ez) || 1;
+    let ox = ez / el, oz = -ex / el;
+    if (ox * ((a[0] + b[0]) / 2 - cx) + oz * ((a[2] + b[2]) / 2 - cz) < 0) { ox = -ox; oz = -oz; }
+    const b0 = fb.vert(a[0] + ox * 0.06, a[1] - 0.50, a[2] + oz * 0.06, ox, 0, oz, 0, 0);
+    const b1 = fb.vert(b[0] + ox * 0.06, b[1] - 0.50, b[2] + oz * 0.06, ox, 0, oz, el, 0);
+    const b2 = fb.vert(b[0] + ox * 0.06, b[1] + 0.02, b[2] + oz * 0.06, ox, 0, oz, el, 1);
+    const b3 = fb.vert(a[0] + ox * 0.06, a[1] + 0.02, a[2] + oz * 0.06, ox, 0, oz, 0, 1);
+    fb.tri(b0, b1, b2); fb.tri(b0, b2, b3);
+  }
+}
+
+// Shallow curved (domed / hipped) roof cap over an arbitrary footprint: several inset rings rise
+// along a smooth curve to a small flat top. Used for the PAC's sweeping silver roofs.
+function addCurvedCap(rb, P, y0, rise, ts = 1) {
+  const n = P.length / 2;
+  if (n < 3 || rise < 0.1) return;
+  let area = 0, cx = 0, cz = 0;
+  for (let i = 0; i < n; i++) {
+    const x0 = P[i * 2], z0 = P[i * 2 + 1], x1 = P[((i + 1) % n) * 2], z1 = P[((i + 1) % n) * 2 + 1];
+    area += x0 * z1 - x1 * z0; cx += x0; cz += z0;
+  }
+  cx /= n; cz /= n;
+  const inset = Math.min(10, Math.max(1.6, Math.sqrt(Math.abs(area) * 0.5) * 0.16));
+  const dirs = [];
+  for (let i = 0; i < n; i++) {
+    const p0 = [P[((i + n - 1) % n) * 2], P[((i + n - 1) % n) * 2 + 1]];
+    const p1 = [P[i * 2], P[i * 2 + 1]];
+    const p2 = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
+    const d0 = [p1[0] - p0[0], p1[1] - p0[1]], d1 = [p2[0] - p1[0], p2[1] - p1[1]];
+    const l0 = Math.hypot(d0[0], d0[1]) || 1, l1 = Math.hypot(d1[0], d1[1]) || 1;
+    const n0 = [-d0[1] / l0, d0[0] / l0], n1 = [-d1[1] / l1, d1[0] / l1];
+    let mx = n0[0] + n1[0], mz = n0[1] + n1[1];
+    const ml = Math.hypot(mx, mz) || 1; mx /= ml; mz /= ml;
+    // point the miter toward the interior
+    if (mx * (cx - p1[0]) + mz * (cz - p1[1]) < 0) { mx = -mx; mz = -mz; }
+    dirs.push([mx, mz]);
+  }
+  const N = 5, rings = [];
+  for (let k = 0; k <= N; k++) {
+    const t = k / N, ring = [];
+    const off = inset * t * insetCurve(t);
+    const y = y0 + rise * Math.sin(Math.PI * 0.5 * t);
+    for (let i = 0; i < n; i++) ring.push([P[i * 2] + dirs[i][0] * off, y, P[i * 2 + 1] + dirs[i][1] * off]);
+    rings.push(ring);
+  }
+  for (let k = 0; k < N; k++) {
+    const A = rings[k], B = rings[k + 1];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const a = A[i], b = A[j], c = B[j], d = B[i];
+      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
+      let nx = e1[1] * e2[2] - e1[2] * e2[1], ny = e1[2] * e2[0] - e1[0] * e2[2], nz = e1[0] * e2[1] - e1[1] * e2[0];
+      const flip = ny < 0; if (flip) { nx = -nx; ny = -ny; nz = -nz; }
+      const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+      const len = Math.hypot(b[0] - a[0], b[2] - a[2]) || 1;
+      const i0 = rb.vert(a[0], a[1], a[2], nx, ny, nz, 0, 0);
+      const i1 = rb.vert(b[0], b[1], b[2], nx, ny, nz, len / ts, 0);
+      const i2 = rb.vert(c[0], c[1], c[2], nx, ny, nz, len / ts, rise / N / ts);
+      const i3 = rb.vert(d[0], d[1], d[2], nx, ny, nz, 0, rise / N / ts);
+      if (!flip) { rb.tri(i0, i1, i2); rb.tri(i0, i2, i3); } else { rb.tri(i0, i2, i1); rb.tri(i0, i3, i2); }
+    }
+  }
+  // small flat top cap
+  const top = rings[N], contour = top.map((p) => new THREE.Vector2(p[0], p[2]));
+  let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { tris = []; }
+  const base = rb.pos.length / 3;
+  for (const v of top) rb.vert(v[0], v[1] + 0.01, v[2], 0, 1, 0, v[0] / ts, v[2] / ts);
+  for (const t of tris) {
+    const A = contour[t[0]], B = contour[t[1]], C = contour[t[2]];
+    const cr = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x);
+    if (cr < 0) rb.tri(base + t[0], base + t[1], base + t[2]); else rb.tri(base + t[0], base + t[2], base + t[1]);
+  }
+}
+function insetCurve(t) { return 0.65 + 0.35 * t; }
 
 // Truncated-hip roof for arbitrary (curved / L / U shaped) footprints: the eave ring is inset towards a flat ridge ring.
 function addPolyRoof(rb, P, y0, s, area, tb) {

@@ -213,6 +213,7 @@ uniform vec3 uSkyZen, uSkyHor; uniform float uSkyWarm;
 varying vec4 vA; varying vec4 vB; varying vec4 vC; varying vec4 vD; varying float vWY; varying vec3 vWP; varying vec3 vWN;
 uniform float uNight;
 uniform vec3 uBrick0; uniform vec3 uBrick1; uniform vec3 uBrick2; uniform vec3 uMetal;
+uniform vec3 uPanelColor;
 float rectM(vec2 p, vec2 lo, vec2 hi, float aa){
   vec2 a = smoothstep(lo - aa, lo + aa, p);
   vec2 b = 1.0 - smoothstep(hi - aa, hi + aa, p);
@@ -334,6 +335,14 @@ const FACADE_FRAG_MAIN = /* glsl */ `
     gWallN = nrmNoTile(normalMap, vNormalMapUv);
     gWallN.xy *= 0.9;
     gWallRough = 0.80 + 0.18 * vnoise2(vec2(vA.x * 2.3, vWY * 2.3));
+  #elif defined(WALL_PANEL)
+    // flat rainscreen / precast panel: no brick/tile texture, only fine cast variation and the
+    // large-format panel joints drawn below (bandsOn > 2.5)
+    float pn = fbm2(vec2(vA.x * 0.55, vWY * 0.45) + seed * 7.0);
+    wallCol = uPanelColor * (0.93 + 0.13 * pn);
+    wallCol *= 0.97 + 0.06 * vnoise2(vec2(vA.x * 5.0, vWY * 4.0));
+    gWallN = vec3(0.0, 0.0, 1.0);
+    gWallRough = 0.86 + 0.1 * vnoise2(vec2(vA.x * 2.0, vWY * 2.0));
   #else
     wallCol = texNoTile(map, vMapUv).rgb * diffuseColor.rgb;
     gWallN = nrmNoTile(normalMap, vNormalMapUv);
@@ -362,13 +371,33 @@ const FACADE_FRAG_MAIN = /* glsl */ `
   float coping = smoothstep(topRel + 0.02, topRel + 0.06, yRel);
   wallCol = mix(wallCol, vec3(0.62, 0.61, 0.58) * (0.9 + 0.2 * meso), coping * step(0.5, fh) * step(1.0, topRel));
   // stone / precast panel cladding: running joints every 1.5 m x 0.75 m
-  if (bandsOn > 1.5) {
+  if (bandsOn > 1.5 && bandsOn < 2.5) {
     float row = floor(vWY / 0.75);
     float px = vA.x + mod(row, 2.0) * 0.75;
     float jx = min(fract(px / 1.5), 1.0 - fract(px / 1.5)) * 1.5, jy = min(fract(vWY / 0.75), 1.0 - fract(vWY / 0.75)) * 0.75;
     float joint = 1.0 - smoothstep(0.006, 0.006 + aa, min(jx, jy));
     float ptone = 0.94 + 0.10 * hash12(vec2(floor(px / 1.5), row));
     wallCol *= ptone * (1.0 - 0.32 * joint);
+  }
+  // large-format rainscreen / precast panels (Baker Center terracotta, PAC concrete): 0.9 x 0.6 m
+  // running-bond panels, thin reveals, per-panel tone variation; reads as flat cladding, not brick.
+  if (bandsOn > 2.5) {
+    const float PW = 0.9, PH = 0.6;
+    float prow = floor(vWY / PH);
+    float ppx = vA.x + mod(prow, 2.0) * PW * 0.5;
+    float pfx = fract(ppx / PW), pfy = fract(vWY / PH);
+    float pjx = min(pfx, 1.0 - pfx) * PW;
+    float pjy = min(pfy, 1.0 - pfy) * PH;
+    float pjd = min(pjx, pjy);
+    float pjoint = 1.0 - smoothstep(0.004, 0.012 + aa, pjd);
+    float ptone = 0.94 + 0.11 * hash12(vec2(floor(ppx / PW), prow));
+    float pbevel = 1.0 - smoothstep(0.012, 0.06, pjd);
+    wallCol *= ptone;
+    wallCol = mix(wallCol, wallCol * vec3(0.72, 0.68, 0.64), pjoint * 0.75);
+    wallCol *= 1.0 + 0.05 * pbevel * (1.0 - pjoint);
+    // faint vertical weathering running down each panel face
+    float pstreak = vnoise2(vec2(floor(ppx / PW) * 4.1 + seed * 9.0, vWY * 0.18));
+    wallCol *= 0.97 + 0.06 * pstreak;
   }
   // string courses between floors (stucco / concrete buildings)
   if (bandsOn > 0.5 && bandsOn < 1.5 && yRel > 0.3 && yRel < topRel - 0.3) {
@@ -550,18 +579,20 @@ const FLAT_DUMMY = flatNormalTexture;
 
 // sunset warmth of the sky (set by sky.js) so glass reflections turn warm at golden hour
 export const SKYREF = { uWarm: { value: 0 } };
-export function patchWallMaterial(mat, { mode = 'tex', glassReflect = 0.2, brick = null, metal = null, lumAvg = 0.374 } = {}) {
+export function patchWallMaterial(mat, { mode = 'tex', glassReflect = 0.2, brick = null, metal = null, panel = null, lumAvg = 0.374 } = {}) {
   mat.onBeforeCompile = (shader) => {
     shader.defines = shader.defines || {};
     if (mode === 'brick') shader.defines.WALL_BRICK = '';
     if (mode === 'metal') shader.defines.WALL_METAL = '';
     if (mode === 'stucco') shader.defines.WALL_STUCCO = '';
+    if (mode === 'panel') shader.defines.WALL_PANEL = '';
     shader.uniforms.uLumAvg = { value: lumAvg };
     shader.uniforms.uNight = NIGHT;
     shader.uniforms.uBrick0 = { value: new THREE.Color(brick ? brick[0] : 0x7a3a28) };
     shader.uniforms.uBrick1 = { value: new THREE.Color(brick ? brick[1] : 0x6a3022) };
     shader.uniforms.uBrick2 = { value: new THREE.Color(brick ? brick[2] : 0x8a4a34) };
     shader.uniforms.uMetal = { value: new THREE.Color(metal || 0xb8bcc0) };
+    shader.uniforms.uPanelColor = { value: new THREE.Color(panel || 0xb0603c) };
     // clear-sky gradient for window reflections (same radiance as the visible sky in sky.js; the IBL copy is desaturated)
     shader.uniforms.uSkyZen = { value: new THREE.Color(0.13, 0.36, 1.15) };
     shader.uniforms.uSkyHor = { value: new THREE.Color(1.10, 1.32, 1.58) };
@@ -596,7 +627,7 @@ vec3 mapN = gWallN; mapN.xy *= normalScale;
 normal = normalize(tbn * mapN);
 normal = normalize(mix(normal, nonPerturbedNormal, clamp(gWin + gFrame, 0.0, 1.0)));`);
   };
-  mat.customProgramCacheKey = () => 'facade-v4-' + mode;
+  mat.customProgramCacheKey = () => 'facade-v5-' + mode;
   void FLAT_DUMMY;
 }
 
