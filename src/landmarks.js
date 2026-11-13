@@ -192,6 +192,32 @@ LANDMARK_STYLES.push({
   });
 }
 
+// ---- Bonderson Projects Center (2007): low gold slate-panel blocks around a work yard, tall dark-framed
+// glazing, and thin flat roofs floating past the walls on slim steel posts. Outlines from the LiDAR.
+{
+  const bp = { wall: 'ochre_panel', panel: 1, win: 'grid', winW: 2.6, winH: 2.7, spacing: 4.4, recess: 0.3, seed: 0.75 };
+  const upper = [[-31.6, -9.1], [-13.4, -9.2], [-13.4, -14], [23.9, -14.3], [23.9, 5], [-11, 5], [-11, 16.4], [-31.6, 16.4]];
+  const roof = (poly, y, out) => ({ wall: 'metal_dark', win: 'none', poly, y0: y, y1: y + 0.28, inset: -out, roof: 'roof_metal_silver', soffit: 1,
+    columns: { sp: 6.5, w: 0.16, from: 0, out: out - 0.5, mat: 'rail' } });
+  LANDMARK_STYLES.push({
+    re: /^Bonderson Projects Center$/,
+    s: {
+      plateFrame: { o: [-253.4, -202.2], ang: -0.2237 }, plateSeed: 0.75,
+      plates: [
+        { ...bp, poly: 'footprint', y0: 0, y1: 4.5, winH: 3.0, bands: [{ y: 4.5 - 0.1, h: 0.5, out: 0.12, mat: 'metal_dark' }] },
+        { ...bp, poly: upper, y0: 4.5, y1: 8.9, bands: [{ y: 8.9 - 0.25, h: 0.45, out: 0.12, mat: 'metal_dark' }] },
+        // glazed corner on the plaza (north-east) end of the north bar
+        { wall: 'pac_glass', win: 'curtain', winW: 1.5, winH: 3.2, spacing: 1.6, floorH: 4.4, poly: [[15, -14.6], [24.3, -14.6], [24.3, 5.3], [15, 5.3]], y0: 0, y1: 8.6, recess: 0.1 },
+        roof(upper, 9.7, 2.6),
+        // lower floating roof over the single-storey south and east wings
+        roof([[-11, 5], [22.7, 5], [22.7, 21.2], [-26.8, 21.6], [-26.8, 16.4], [-11, 16.4]], 5.2, 1.8),
+      ],
+    },
+  });
+  // the rest of the Engineering Plaza group shares the gold panels and floating sun canopies
+  LANDMARK_STYLES.push({ re: /^(Engineering IV|Advanced Technologies Laboratory)$/, s: { wall: 'ochre_panel', panel: 1, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, canopyLift: 1.6, canopyOut: 2.4 } });
+}
+
 export function applyLandmarkStyle(b) {
   if (!b.n || b._lmDone) return;
   b._lmDone = true;

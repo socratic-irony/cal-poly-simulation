@@ -80,6 +80,7 @@ export function createMaterials(manifest, anisotropy = 8) {
     mk('terracotta_panel', '#b26a47');
     mk('bronze_panel', '#887d6f');
     mk('pac_panel', '#b5a78e');
+    mk('ochre_panel', '#c79f55');     // Bonderson / Engineering IV gold slate-look panels
   }
   mats.rail = new THREE.MeshStandardMaterial({ color: 0x2e3238, metalness: 0.75, roughness: 0.42 });
   mats.trim = new THREE.MeshStandardMaterial({ color: 0xe6dccb, roughness: 0.75, metalness: 0 });
@@ -1877,7 +1878,8 @@ function addPlates(bucket, b, s, pad, seed, mats) {
           const nx = dz / len, nz = -dx / len, m = Math.max(1, Math.round(len / (pl.columns.sp || 7.5)));
           for (let k = 0; k < m; k++) {
             const t = (k / m) * len + cw / 2;
-            addBox(cb, p[0] + (dx / len) * t - nx * cw / 2, y0 - 0.6, p[1] + (dz / len) * t - nz * cw / 2, cw, h + 0.6, cw, Math.atan2(dz, dx), 1.6, [[0, y0 - 8, 1, 1], [0, 0, 0, seed], [0, 0, 0, 0], [0, 0, 0, 0]]);
+            const cy0 = pl.columns.from != null ? pad + pl.columns.from : y0 - 0.6, co = pl.columns.out || 0;
+            addBox(cb, p[0] + (dx / len) * t + nx * (co - cw / 2), cy0, p[1] + (dz / len) * t + nz * (co - cw / 2), cw, y1 - cy0 - (pl.columns.from != null ? h : 0), cw, Math.atan2(dz, dx), 1.6, [[0, y0 - 8, 1, 1], [0, 0, 0, seed], [0, 0, 0, 0], [0, 0, 0, 0]]);
           }
         }
       }
