@@ -110,7 +110,11 @@ export function buildPavements(data, hf) {
   };
   const CW = 0.17, CH = 0.16;
   const cap = (row) => { curb.idx.push(row[0], row[1], row[2], row[0], row[2], row[3]); };
-  const emitCurb = (pts, lateral, id) => {
+  const emitCurb = (pts0, lateral, id) => {
+    // smoothed centre lines carry a point every few decimetres on bends: one curb section per ~1.8 m is plenty
+    const pts = []; let lastP = null;
+    pts0.forEach((q, i) => { if (!lastP || i === pts0.length - 1 || Math.hypot(q.x - lastP.x, q.z - lastP.z) >= 1.8) { pts.push(q); lastP = q; } });
+    if (pts.length < 2) return;
     frames(pts);
     let prev = null;
     for (const p of pts) {
@@ -144,7 +148,7 @@ export function buildPavements(data, hf) {
     if (r.k !== 'road' || r.br || r.w < 5.8) return;
     if (r.sv === 'parking_aisle' || r.sv === 'driveway' || r.sv === 'alley') return;
     if (r.hw === 'motorway' || r.hw === 'motorway_link') return;
-    const pts = resample(r.p, 1.2); if (pts.length < 2) return;
+    const pts = resample(r.p, 2.0); if (pts.length < 2) return;      // 2 m: still hugs the 4 m terrain grid, 40 % fewer triangles
     emitCurb(pts.map((q) => ({ ...q })), -(r.w / 2 + CW / 2), id);
     emitCurb(pts.map((q) => ({ ...q })), (r.w / 2 + CW / 2), id);
     nCurb++;
@@ -154,7 +158,7 @@ export function buildPavements(data, hf) {
     if (a.k !== 'parking') continue;
     const ring = a.rings[0]; if (!ring || ring.length < 8) continue;
     const pts = []; for (let i = 0; i <= ring.length; i += 2) pts.push(ring[i % ring.length], ring[(i + 1) % ring.length]);
-    emitCurb(resample(pts, 1.2), 0, -1);
+    emitCurb(resample(pts, 2.0), 0, -1);
   }
 
   const group = new THREE.Group(); group.name = 'pavements';
