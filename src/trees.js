@@ -56,10 +56,19 @@ function leafTexture(palette, { n = 150, leaf = [10, 22], width = [5, 10], seed 
   const r = rng(seed);
   const SZ = 1.6, COUNT = Math.round(n * 2.2);
   ctx.clearRect(0, 0, S, S);
+  // each card is a sprig, not a pom-pom: leaves gather around a handful of offset, stretched lobes with gaps between
+  // them, so the card outline is irregular and a crown made of many cards has no round blobs in it
+  const lobes = [];
+  for (let k = 0; k < 6; k++) lobes.push({ cx: S / 2 + (r() - 0.5) * S * 0.50, cy: S / 2 + (r() - 0.5) * S * 0.50, s: S * (0.065 + 0.06 * r()), e: 0.55 + 0.9 * r(), a: r() * Math.PI });
+  void round;
   for (let pass = 0; pass < 3; pass++) {
     for (let i = 0; i < COUNT; i++) {
-      const a = r() * Math.PI * 2, d = Math.min(S * 0.48, S * round * 0.52 * Math.sqrt(-2 * Math.log(Math.max(1e-4, r()))));   // gaussian falloff -> ragged, organic cluster edge
-      const x = S / 2 + Math.cos(a) * d, y = S / 2 + Math.sin(a) * d * 0.92;
+      const L = lobes[Math.floor(r() * lobes.length)];
+      const g1 = Math.sqrt(-2 * Math.log(Math.max(1e-4, r()))), g2 = r() * Math.PI * 2;
+      const gx = g1 * Math.cos(g2), gy = g1 * Math.sin(g2) * L.e, ca = Math.cos(L.a), sa = Math.sin(L.a);
+      const x = L.cx + (gx * ca - gy * sa) * L.s, y = L.cy + (gx * sa + gy * ca) * L.s;
+      if (x < 14 || y < 14 || x > S - 14 || y > S - 14) continue;
+      const d = Math.min(1, g1 / 2.3) * S * 0.48;
       const l = (leaf[0] + r() * (leaf[1] - leaf[0])) * SZ, w = (width[0] + r() * (width[1] - width[0])) * SZ;
       // darker leaves first (inner), lighter highlights last (outer, upper)
       const k = pass === 0 ? r() * 0.4 : pass === 1 ? 0.3 + r() * 0.4 : 0.6 + r() * 0.4;
@@ -225,23 +234,27 @@ function crownClusters({ centerY, rx, ry, rz, seed, cone }) {
   if (cone) return [{ x: 0, y: centerY, z: 0, r: Math.max(rx, rz), ry }];
   // tall crowns (eucalyptus): open, irregular -- many smaller clumps scattered up the height with gaps between them
   if (ry > Math.max(rx, rz) * 1.6) {
-    const K = 8 + Math.floor(r() * 3);
-    const cl = [{ x: 0, y: centerY + ry * 0.35, z: 0, r: Math.min(rx, rz) * 0.42, ry: ry * 0.22 }];
+    const K = 15 + Math.floor(r() * 5);
+    const cl = [{ x: 0, y: centerY + ry * 0.35, z: 0, r: Math.min(rx, rz) * 0.36, ry: ry * 0.16 }];
     for (let k = 0; k < K; k++) {
-      const a = r() * Math.PI * 2, d = 0.3 + r() * 0.5;
+      const a = k * 2.39996 + r() * 0.9, d = 0.22 + r() * 0.6;
       const yy = centerY + (-0.78 + 1.65 * (k + r() * 0.7) / K) * ry * 0.85;
       const taper = 1.0 - 0.35 * Math.max(0, (yy - centerY) / ry);              // narrower toward the top
       // flattened, wide sprays (gum foliage hangs in layered clumps) rather than round balls
-      cl.push({ x: Math.cos(a) * rx * d * taper, y: yy, z: Math.sin(a) * rz * d * taper, r: Math.min(rx, rz) * (0.46 + r() * 0.26), ry: ry * (0.12 + r() * 0.08) });
+      cl.push({ x: Math.cos(a) * rx * d * taper, y: yy, z: Math.sin(a) * rz * d * taper, r: Math.min(rx, rz) * (0.30 + r() * 0.30), ry: ry * (0.07 + r() * 0.08) });
     }
     return cl;
   }
-  const K = 6 + Math.floor(r() * 3);
-  const cl = [{ x: 0, y: centerY + ry * 0.12, z: 0, r: Math.min(rx, rz) * 0.62, ry: ry * 0.62 }];
+  // broad crowns: a dozen or more overlapping boughs of different sizes -- wide flattish ones low and outside, smaller
+  // rounder ones stacked toward the top -- so the outline is one irregular mass, not a ring of equal balls
+  const K = 12 + Math.floor(r() * 5), m = Math.min(rx, rz);
+  const cl = [{ x: (r() - 0.5) * rx * 0.2, y: centerY + ry * 0.1, z: (r() - 0.5) * rz * 0.2, r: m * 0.55, ry: ry * 0.55 }];
   for (let k = 0; k < K; k++) {
-    const a = (k / K) * Math.PI * 2 + r() * 0.6, up = -0.15 + r() * 0.75;
-    const d = 0.48 + r() * 0.22;
-    cl.push({ x: Math.cos(a) * rx * d, y: centerY + up * ry * 0.8, z: Math.sin(a) * rz * d, r: Math.min(rx, rz) * (0.40 + r() * 0.16), ry: ry * (0.45 + r() * 0.15) });
+    const a = k * 2.39996 + r() * 0.8;                       // golden-angle spiral: no two boughs line up
+    const lvl = (k + r()) / K;                                // 0 = low and wide ... 1 = top
+    const d = (0.72 - 0.5 * lvl) * (0.75 + r() * 0.45);
+    const rr = m * (0.22 + 0.24 * r()) * (1.15 - 0.35 * lvl);
+    cl.push({ x: Math.cos(a) * rx * d, y: centerY + (-0.42 + 1.25 * lvl) * ry * 0.78, z: Math.sin(a) * rz * d, r: rr, ry: rr * (0.55 + 0.4 * r()) * (ry / m > 0.9 ? 1.25 : 1.0) });
   }
   return cl;
 }
@@ -259,13 +272,13 @@ function clusteredCrownGeometry({ clumps, centerY, rx, ry, rz, size, seed, cone 
       // point on the sub-clump surface (slightly inside), biased away from the crown centre
       let dx, dy, dz; do { dx = r() * 2 - 1; dy = r() * 2 - 1; dz = r() * 2 - 1; } while (dx * dx + dy * dy + dz * dz > 1 || dx * dx + dy * dy + dz * dz < 0.05);
       const l = Math.hypot(dx, dy, dz); dx /= l; dy /= l; dz /= l;
-      const rad = tall ? 0.35 + 0.75 * r() : 0.72 + 0.28 * r();
+      const rad = tall ? 0.35 + 0.75 * r() : 0.5 + 0.62 * r();     // through the bough and a little past its skin: no hard ball outline
       const cx = c.x + dx * c.r * rad, cy = c.y + dy * c.ry * rad, cz = c.z + dz * c.r * rad;
       // skip points buried inside other clumps (keeps cards on the outer skin)
       let buried = false;
       for (const o of cl) { if (o === c) continue; const q = ((cx - o.x) / o.r) ** 2 + ((cy - o.y) / o.ry) ** 2 + ((cz - o.z) / o.r) ** 2; if (q < 0.55) { buried = true; break; } }
       if (buried && r() < 0.8) continue;
-      let nx = dx + (r() - 0.5) * 0.6, ny = tall ? Math.max(-0.2, Math.min(0.35, dy * 0.4 + (r() - 0.5) * 0.4)) : Math.max(-0.3, Math.min(0.7, dy * 0.7 + 0.1 + (r() - 0.5) * 0.4)), nz = dz + (r() - 0.5) * 0.6;
+      let nx = dx + (r() - 0.5) * 1.2, ny = tall ? Math.max(-0.2, Math.min(0.35, dy * 0.4 + (r() - 0.5) * 0.4)) : Math.max(-0.3, Math.min(0.7, dy * 0.7 + 0.1 + (r() - 0.5) * 0.7)), nz = dz + (r() - 0.5) * 1.2;
       let nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
       let ux = ny, uy = -nx, uz = 0; let ul = Math.hypot(ux, uy, uz);
       if (ul < 1e-3) { ux = 0; uy = nz; uz = -ny; ul = Math.hypot(ux, uy, uz); }
@@ -282,7 +295,8 @@ function clusteredCrownGeometry({ clumps, centerY, rx, ry, rz, size, seed, cone 
         // shading: sub-clump normal blended with crown normal; inner/lower cards darker
         const gx = x / Math.max(rx, 0.1), gy = (y - centerY) / Math.max(ry, 0.1) + 0.25, gz = z / Math.max(rz, 0.1);
         const lx = (x - c.x) / c.r, ly = (y - c.y) / c.ry + 0.2, lz = (z - c.z) / c.r;
-        let mx = gx * 0.45 + lx * 0.55, my = gy * 0.45 + ly * 0.55, mz = gz * 0.45 + lz * 0.55; const ml = Math.hypot(mx, my, mz) || 1;
+        // light the crown as one mass (each bough only nudges the normal), otherwise every bough shades like its own ball
+        let mx = gx * 0.74 + lx * 0.26, my = gy * 0.74 + ly * 0.26, mz = gz * 0.74 + lz * 0.26; const ml = Math.hypot(mx, my, mz) || 1;
         nor.push(mx / ml, my / ml, mz / ml);
         const outer = Math.min(1, Math.hypot(gx, gz)); const sh = Math.min(1, Math.max(0.55, 0.6 + 0.25 * outer + 0.22 * (gy - 0.25) + 0.1 * ly));
         colArr.push(sh, sh, sh);
@@ -303,7 +317,7 @@ function clusteredCrownGeometry({ clumps, centerY, rx, ry, rz, size, seed, cone 
 function clusteredCoreGeometry({ centerY, rx, ry, rz, scale, detail, seed, cone }) {
   if (cone) return coreGeometry({ centerY, rx, ry, rz, scale, detail, seed });
   const cl = crownClusters({ centerY, rx, ry, rz, seed: seed - 7, cone });
-  const parts = cl.map((c, k) => { const g = coreGeometry({ centerY: c.y, rx: c.r, ry: c.ry, rz: c.r, scale: scale * 0.96, detail: Math.max(1, detail - (k ? 1 : 0)), seed: seed + k }); g.translate(c.x, 0, c.z); g.deleteAttribute('uv'); return g.toNonIndexed(); });
+  const parts = cl.map((c, k) => { const g = coreGeometry({ centerY: c.y, rx: c.r, ry: c.ry, rz: c.r, scale: scale * 0.8, detail: Math.max(1, detail - (k ? 1 : 0)), seed: seed + k }); g.translate(c.x, 0, c.z); g.deleteAttribute('uv'); return g.toNonIndexed(); });
   const merged = mergeGeometries(parts.map((g) => { if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)); return g; }), false);
   // planar uvs for the leaf-mass texture
   const pa = merged.attributes.position, uv = merged.attributes.uv;
@@ -316,7 +330,7 @@ function limbsGeometry({ centerY, rx, ry, rz, seed, trunkH, r0, r1, cone }) {
   const parts = [trunkGeometry(trunkH, r0, r1, 0.3, seed, 0)];
   if (!cone) {
     const cl = crownClusters({ centerY, rx, ry, rz, seed: seed - 7 + 0, cone });
-    for (const c of cl.slice(1)) {
+    for (const c of cl.slice(1).filter((_, k) => cl.length <= 11 || k % 2 === 0)) {      // a limb into every other bough is plenty
       const sx = 0, sy = trunkH * (0.7 + 0.2 * Math.random()), sz = 0;
       const ex = c.x * 0.75, ey = c.y - c.ry * 0.2, ez = c.z * 0.75;
       const L = Math.hypot(ex - sx, ey - sy, ez - sz);
