@@ -349,7 +349,7 @@ float aN = fbm2(gp * 0.045 + 31.0);
 float aP = smoothstep(0.58, 0.64, aN) - smoothstep(0.74, 0.80, aN);          // repaired patches
 float aS = smoothstep(0.62, 0.8, fbm2(gp * 0.18 + 5.0));                     // darker stains
 vec3 asphTint = vec3(1.0, 0.985, 0.96) * (0.92 + 0.22 * macro) * (1.0 - 0.20 * aP) * (1.0 - 0.14 * aS) * (0.92 + 0.16 * fbm2(gp * 0.5));
-ADDL(2, sA.r, asphTint * vec3(3.1, 2.95, 2.75))      // aged light-grey asphalt: matched to the registered aerial (summer sun)
+ADDL(2, sA.r, asphTint * vec3(2.55, 2.45, 2.32))      // aged light-grey asphalt: matched to the registered aerial (summer sun)
 ADDL(3, sA.g, vec3(2.75, 2.85, 3.1) * (0.82 + 0.3 * fbm2(gp * 0.25)))   // terrain concrete (aprons, aerial-classified plazas): calibrated vs the aerial
 ADDL(4, sA.b, vec3(2.7, 1.72, 1.36))      // salmon-terracotta concrete pavers (University Union plaza photos)
 ADDM(6, sB.r, vec3(1.45, 1.28, 1.05) * (0.8 + 0.5 * fbm2(gp * 0.05)), 1.0)

@@ -1131,7 +1131,7 @@ function addPacShells(bucket, s, pad, seed) {
   // lofted surface over (u index i, depth samples) with smooth normals; flip = underside
   const loft = (bk, depths, yf, thick = 0, flip = false, uvScale = 1, sh = null, ytaper = null) => {
     const M = depths.length, g = [];
-    for (let i = 0; i < N; i++) { const row = []; for (let j = 0; j < M; j++) { const u = i / (N - 1), t = j / (M - 1); const y0 = yf(depths[j]); row.push(at(i, depths[j] + (sh ? sh(u, t) : 0), (ytaper ? ytaper(u, y0, depths[j]) : y0) - thick)); } g.push(row); }
+    for (let i = 0; i < N; i++) { const row = []; for (let j = 0; j < M; j++) { const u = i / (N - 1), t = j / (M - 1); const y0 = yf(depths[j]); row.push(at(i, depths[j] + (sh ? sh(u, t) : 0), (ytaper ? ytaper(u, y0, depths[j]) : y0) - (typeof thick === 'function' ? thick(depths[j]) : thick))); } g.push(row); }
     const id = [];
     for (let i = 0; i < N; i++) {
       id.push([]);
@@ -1168,14 +1168,16 @@ function addPacShells(bucket, s, pad, seed) {
     const f = (d) => sc.y0 + (sc.y1 - sc.y0) * sc.shape(Math.min(1, Math.max(0, (d - sc.d0) / (sc.d1 - sc.d0))));
     const ds = lin(sc.d0, sc.d1, 8);
     const shf = (u, t) => wob(sc.k, u) * (1 - t) + wob(sc.k + 1, u) * t;
-    loft(rb, ds, f, 0, false, 1, shf); loft(ub, ds, f, 0.5, true, 1, shf);
+    const nose = (d) => { const t = Math.min(1, Math.max(0, (d - sc.d0) / 3.6)); return 0.5 + 0.95 * (1 - t * t * (3 - 2 * t)); };
+    loft(rb, ds, f, 0, false, 1, shf); loft(ub, ds, f, nose, true, 1, shf);
     surfY.push({ d0: sc.d0, d1: sc.d1, f });
   }
   {
     const ds = lin(dm0, C.backD, 30);
     const shm = (u, t) => wob(2, u) * Math.max(0, 1 - t * 3);
     const tp = (u, y) => y2 + (y - y2) * taper(u);   // shell height tapers toward the gable ends
-    loft(rb, ds, mainY, 0, false, 1, shm, tp); loft(ub, ds, mainY, 0.55, true, 1, shm, tp); surfY.push({ d0: dm0, d1: C.backD, f: (d) => y2 + (mainY(d) - y2) * taper(0) });
+    const noseM = (d) => { const t = Math.min(1, Math.max(0, (d - dm0) / 3.6)); return 0.55 + 0.95 * (1 - t * t * (3 - 2 * t)); };
+    loft(rb, ds, mainY, 0, false, 1, shm, tp); loft(ub, ds, mainY, noseM, true, 1, shm, tp); surfY.push({ d0: dm0, d1: C.backD, f: (d) => y2 + (mainY(d) - y2) * taper(0) });
   }
   const topAt = (d) => { let y = -1; for (const sc of surfY) if (d >= sc.d0 && d <= sc.d1) y = Math.max(y, sc.f(d)); return y; };
   // red lips on the three front edges
@@ -1191,6 +1193,37 @@ function addPacShells(bucket, s, pad, seed) {
       const v2 = fb.vert(b[0], b[1], b[2], nx / nl, 0, nz / nl, l, 1), v3 = fb.vert(a[0], a[1], a[2], nx / nl, 0, nz / nl, 0, 1);
       quad(fb, v0, v1, v2, v3, nx / nl, 0, nz / nl);
     }
+  }
+  // thick silver nose under each red lip (the roofs read as wings, not sheets)
+  for (let k = 0; k < 3; k++) {
+    const d = lipDepth[k], yTop = pad + C.E[k];
+    for (let i = 0; i < N - 1; i++) {
+      const w0 = wob(k, i / (N - 1)), w1 = wob(k, (i + 1) / (N - 1));
+      const a = at(i, d + w0, yTop - 0.28), b = at(i + 1, d + w1, yTop - 0.28), a2 = at(i, d + w0 + 0.25, yTop - 1.46), b2 = at(i + 1, d + w1 + 0.25, yTop - 1.46);
+      const nx = -(nrm[i][0] + nrm[i + 1][0]) / 2, nz = -(nrm[i][1] + nrm[i + 1][1]) / 2, nl = Math.hypot(nx, nz) || 1;
+      const l = arc[i + 1] - arc[i];
+      const v0 = ub.vert(a2[0], a2[1], a2[2], nx / nl, -0.2, nz / nl, arc[i], 0), v1 = ub.vert(b2[0], b2[1], b2[2], nx / nl, -0.2, nz / nl, arc[i] + l, 0);
+      const v2 = ub.vert(b[0], b[1], b[2], nx / nl, 0, nz / nl, arc[i] + l, 1.2), v3 = ub.vert(a[0], a[1], a[2], nx / nl, 0, nz / nl, arc[i], 1.2);
+      quad(ub, v0, v1, v2, v3, nx / nl, 0, nz / nl);
+    }
+  }
+  // white round columns under the first overhang, every ~6.5 m
+  {
+    const cb = bucket('coping'); let next = 3;
+    for (let i = 0; i < N; i++) {
+      if (arc[i] < next) continue; next = arc[i] + 6.5;
+      const p = at(i, -(C.OV[0] - 1.3), 0);
+      addColumn(cb, p[0], pad - 0.3, p[2], 0.32, C.E[0] - 1.0, 14);
+    }
+  }
+  // striped silver stair tower at the north-east end and a red-capped glass lantern on the middle roof
+  {
+    const iT = N - 3, tx = pts[iT + 1][0] - pts[iT - 1][0], tz = pts[iT + 1][1] - pts[iT - 1][1], angT = Math.atan2(tz, tx);
+    const cT = at(iT, C.D[2] + 6, 0);
+    addLandmarkBox(bucket, { c: [cT[0], cT[2]], w: 9, d: 9, h: C.E[2] + 5.5, ang: angT, mat: 'metal_silver', win: 'none', copingMat: 'fascia_red', roofMat: 'roof_metal_red' }, pad, seed);
+    const iL = Math.round(N * 0.24), lx = pts[iL + 1][0] - pts[iL - 1][0], lz = pts[iL + 1][1] - pts[iL - 1][1];
+    const cL = at(iL, C.D[2] + 4.5, 0);
+    addLandmarkBox(bucket, { c: [cL[0], cL[2]], w: 13, d: 6, y0: C.E[2] + 0.4, h: C.E[2] + 4.6, ang: Math.atan2(lz, lx), mat: s.wall, spacing: 1.6, winH: 3.0, floorH: 4.2, copingMat: 'fascia_red', roofMat: 'roof_metal_red' }, pad, seed);
   }
   // glass bands for tiers 1 and 2 (tier 0's glass is the footprint wall) ---------------------
   const fh = s.floorH || 4.4, B = [1.35, C.glassH / 3, 6, seed], D4 = [0, 0, 0.10, 0];
