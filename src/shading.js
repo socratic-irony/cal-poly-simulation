@@ -167,7 +167,7 @@ void roofPattern(vec2 ruv, out vec3 col){
 `;
 
 export const AERIAL = { tex: null };
-export function makeRoofMaterial(kind, colorA, colorB, { seed = 0, side = THREE.DoubleSide } = {}) {
+export function makeRoofMaterial(kind, colorA, colorB, { seed = 0, side = THREE.DoubleSide, aerial = true } = {}) {
   // envMapIntensity < 1: the aerial colour already contains the photo's skylight; full blue sky IBL on top turned brown roofs mauve
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0, side, normalMap: flatNormalTexture(), vertexColors: true, envMapIntensity: 0.7 });
   m.userData.kind = kind;
@@ -180,7 +180,7 @@ export function makeRoofMaterial(kind, colorA, colorB, { seed = 0, side = THREE.
     shader.uniforms.uRB = { value: new THREE.Color(colorB) };
     shader.uniforms.uSeed = { value: seed };
     shader.uniforms.uAerial = { value: AERIAL.tex || flatNormalTexture() }; shader.uniforms.uAerialGain = { value: kind === 'flat' ? 1.42 : kind === 'tile' ? 3.0 : 1.85 };   // calibrated per kind against the registered aerial (summer sun)
-    if (AERIAL.tex) shader.defines.ROOF_AERIAL = '';
+    if (AERIAL.tex && aerial) shader.defines.ROOF_AERIAL = '';   // aerial=false: roofs the photo predates (new buildings)
     shader.uniforms.uAerialK = { value: kind === 'flat' ? 1.0 : kind === 'tile' ? 0.95 : 0.6 };
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vRW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvRW = (modelMatrix * vec4(position, 1.0)).xz;');
     shader.fragmentShader = shader.fragmentShader
@@ -198,7 +198,7 @@ export function makeRoofMaterial(kind, colorA, colorB, { seed = 0, side = THREE.
         vec3 mapN = gRoofN; mapN.xy *= normalScale;
         normal = normalize(tbn * mapN);`);
   };
-  m.customProgramCacheKey = () => 'roof-' + kind + (AERIAL.tex ? '-aer' : '') + '-v15';
+  m.customProgramCacheKey = () => 'roof-' + kind + (AERIAL.tex && aerial ? '-aer' : '') + '-v15';
   return m;
 }
 

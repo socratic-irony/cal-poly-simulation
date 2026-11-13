@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import './atmosphere.js';      // must patch the fog shader chunks before any material compiles
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { loadJSON, loadFloat32, url, loadImage } from './util.js';
 import { Heightfield, buildTerrainMeshes } from './heightfield.js';
@@ -22,6 +23,7 @@ import { NIGHT, buildLampGlow, buildStars } from './night.js';
 import { setupUI } from './ui.js';
 import { buildRoadMarks } from './roadmarks.js';
 import { buildProps, buildFences, buildCars, buildThePLetter } from './props.js';
+import { buildPacPlaza } from './pacplaza.js';
 import { buildWater } from './water.js';
 import { buildPavements, buildDesirePaths } from './paths.js';
 import { smoothRoads } from './smooth.js';
@@ -34,7 +36,8 @@ const say = (t) => { loading.textContent = t; };
 
 const QUALITY = params.get('q') || 'high';
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: false });
-const MAX_PR = Math.min(window.devicePixelRatio, parseFloat(params.get('pr') || (QUALITY === 'low' ? '1' : '2')));
+// 1.5x on Retina screens by default (2x costs ~1.8x the fill rate for little visible gain under SMAA); ?pr=2 restores it
+const MAX_PR = Math.min(window.devicePixelRatio, parseFloat(params.get('pr') || (QUALITY === 'low' ? '1' : '1.5')));
 let curPR = MAX_PR;
 renderer.setPixelRatio(curPR);
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -43,6 +46,8 @@ renderer.toneMappingExposure = 0.45;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;     // re-rendered only when the sun or the shadow frustum moves (SkyRig)
+renderer.shadowMap.needsUpdate = true;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -128,6 +133,7 @@ async function init() {
   const props = buildProps(data, hf, occ, walkRoads);
   scene.add(props.group);
   app.props = props;
+  scene.add(buildPacPlaza(hf));
   scene.add(buildFences(data, hf, mats));
   scene.add(buildThePLetter(hf));
   const water = buildWater(data, hf); scene.add(water.group);
@@ -189,7 +195,7 @@ window.addEventListener('resize', resize);
 let last = performance.now();
 function frame() {
   const nowT = performance.now(); const dt = Math.min(0.1, (nowT - last) / 1000); last = nowT;
-  if (app.walk && app.walk.active) app.walk.update(dt); else if (!(app.tour && app.tour.active)) controls.update();
+  if (app.walk && app.walk.active) app.walk.update(dt); else if (!(app.tour && app.tour.active)) { if (app.flyKeys) app.flyKeys(dt); controls.update(dt); }
   const tsec = performance.now() / 1000;
   for (const m of FOLIAGE) if (m.userData.shader) m.userData.shader.uniforms.uTime.value = tsec;
   if (app.terrainUniforms) app.terrainUniforms.uTime.value = tsec;
@@ -217,18 +223,38 @@ function frame() {
   if (app.grade) app.grade.uniforms.uTime.value = tsec % 100;
   if (app.composer) app.composer.render(); else renderer.render(scene, camera);
 }
+// ---- frame pacing: full rate (capped at 60 fps, even on 120 Hz displays) while anything moves, a slow
+// idle tick otherwise (keeps clouds / wind alive) -- the GPU mostly rests when you're just looking
+const IDLE_MS = 1000 / 6, ACTIVE_MS = 1000 / 60;
+let lastRender = 0, lastActive = performance.now();
+const poke = () => { lastActive = performance.now(); };
+app.poke = poke;
+for (const ev of ['pointerdown', 'wheel', 'keydown', 'input', 'resize']) addEventListener(ev, poke, { passive: true });
+addEventListener('pointermove', (e) => { if (e.buttons) poke(); }, { passive: true });
+const camSig = new Float64Array(7), camTmp = new Float64Array(7);
+function cameraMoved() {
+  camera.position.toArray(camTmp, 0); camera.quaternion.toArray(camTmp, 3);
+  let d = 0; for (let i = 0; i < 7; i++) d = Math.max(d, Math.abs(camTmp[i] - camSig[i]));
+  camSig.set(camTmp);
+  return d > 1e-4;
+}
 let winStart = performance.now(), winFrames = 0;
-function loop() {
-  frame(); requestAnimationFrame(loop);
+function loop(now = performance.now()) {
+  requestAnimationFrame(loop);
+  const busy = (app.tour && app.tour.active) || controls.autoRotate || (app.walk && app.walk.active && app.walk.keys && app.walk.keys.size) || now - lastActive < 900;
+  if (now - lastRender < (busy ? ACTIVE_MS : IDLE_MS) - 2) return;
+  lastRender = now;
+  frame();
+  if (cameraMoved()) poke();
+  if (!busy) { winStart = now; winFrames = 0; return; }       // adaptive resolution only judges active frames
   winFrames++;
-  const now = performance.now();
   if (now - winStart > 2500) {
     const fps = (winFrames * 1000) / (now - winStart);
     winStart = now; winFrames = 0;
     if (params.get('auto') !== '0' && !document.hidden) {
       let pr = curPR;
       if (fps < 24 && curPR > 0.75) pr = Math.max(0.75, curPR - 0.25);
-      else if (fps > 55 && curPR < MAX_PR) pr = Math.min(MAX_PR, curPR + 0.25);
+      else if (fps > 52 && curPR < MAX_PR) pr = Math.min(MAX_PR, curPR + 0.25);
       if (pr !== curPR) {
         curPR = pr; renderer.setPixelRatio(pr);
         if (app.composer) { app.composer.setPixelRatio(pr); app.composer.setSize(window.innerWidth, window.innerHeight); }

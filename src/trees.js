@@ -482,6 +482,14 @@ export function buildTrees(data, hf, occ, { density = 1, detected = null, wide =
     occ.mark(t[0], t[1]);
   }
 
+  // 1b) the PAC plaza plantings: a row of palms along the plaza's east edge and a column of Italian cypress
+  //     south of the lawn oval, as in the aerial photos
+  for (let k = 0; k < 6; k++) { const x = 431 + k * 5.2, z = 146 + k * 9.4; const y = hf.at(x, z); placed.palm.push([x, y, z, 1.0 + (k % 2) * 0.08, k * 1.7]); occ.mark(x, z); }
+  for (let k = 0; k < 7; k++) {
+    const a = Math.PI * (0.18 + 0.64 * k / 6), x = 430 + Math.cos(a) * 24, z = 207 + Math.sin(a) * 24; const y = hf.at(x, z);
+    placed.conifer.push([x, y, z, 0.36, k * 2.1, 0.62]); occ.mark(x, z);
+  }
+
   // 2) street + path trees
   const budget = { walk: 0, road: 0 };
   for (const rd of data.roads) {

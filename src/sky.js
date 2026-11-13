@@ -72,7 +72,7 @@ export class SkyRig {
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envScene = new THREE.Scene();
     this.dir = new THREE.Vector3(0, 1, 0);
-    this.fog = new THREE.FogExp2(0xa9c4e2, 0.00004);
+    this.fog = new THREE.FogExp2(0xa9c4e2, 0.000105);   // per metre at the campus floor; height falloff in atmosphere.js
     scene.fog = this.fog;
     // lower hemisphere for the environment map only: soft, sun-lit ground bounce so shaded walls aren't black
     this.groundMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.18, 0.17, 0.13), side: THREE.BackSide, toneMapped: false });
@@ -109,6 +109,7 @@ export class SkyRig {
     this.moon.intensity = 0.55 * NIGHT.value;
     this.renderer.toneMappingExposure = 0.42 * (1 + 2.8 * Math.pow(warm, 1.5)) * (1 - NIGHT.value) + 1.0 * NIGHT.value;
     this.updateEnvironment();
+    this.renderer.shadowMap.needsUpdate = true;
   }
 
   updateEnvironment() {
@@ -125,6 +126,13 @@ export class SkyRig {
   // keep the shadow frustum centred (and texel-snapped) on the area the camera is looking at
   followTarget(target, extent) {
     const d = this.dir;
+    // the shadow map is only re-rendered when this frustum actually moves (by > ~1 texel) or resizes
+    const lf = this._lastFollow || (this._lastFollow = [1e9, 0, 0, 0, 0, 0, 0]);
+    const texel = (2 * extent) / this.sun.shadow.mapSize.x;
+    if (Math.abs(extent - lf[3]) / Math.max(extent, 1) < 0.02 && Math.hypot(target.x - lf[0], target.y - lf[1], target.z - lf[2]) < texel
+      && Math.abs(d.x - lf[4]) + Math.abs(d.y - lf[5]) + Math.abs(d.z - lf[6]) < 1e-6) return;
+    lf[0] = target.x; lf[1] = target.y; lf[2] = target.z; lf[3] = extent; lf[4] = d.x; lf[5] = d.y; lf[6] = d.z;
+    this.renderer.shadowMap.needsUpdate = true;
     const dist = Math.max(extent * 2.2, 400);
     this.sun.target.position.copy(target);
     this.sun.position.copy(target).addScaledVector(d, dist);

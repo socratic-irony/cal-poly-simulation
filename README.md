@@ -19,7 +19,9 @@ npm install
 npm run dev          # http://127.0.0.1:5173
 ```
 
-Production build: `npm run build` → `dist/` (static files, host anywhere). Query options: `?t=16.5` (hour of day), `?pr=1` (render scale).
+Production build: `npm run build` → `dist/` (static files, host anywhere). Query options: `?t=16.5` (hour of day), `?pr=1` (render scale; default 1.5 on Retina, `?pr=2` for full), `?q=low`.
+
+The render loop runs at up to 60 fps only while something moves (camera, tour, orbit, keys) and drops to ~6 fps when idle; the sun's shadow map is re-rendered only when the sun or the shadow frustum moves.
 
 ### Controls
 * **Orbit mode** (default): drag = orbit, right-drag = pan, wheel = zoom, click a building = show its name.
@@ -56,6 +58,11 @@ Every screenshot taken while developing is saved in `screenshots/` (numbered in 
 src/main.js        scene setup, loading, post-processing (N8AO, bloom, grade, SMAA), render loop
 src/ground.js      OSM + aerial -> ground splat maps, terrain shader (no-tile sampling, aerial colour transfer), contact shadows
 src/buildings.js   footprints -> walls / roofs / portals / colonnades / signs / downspouts, roof + facade material set
+src/landmarks.js   hand-tuned landmark overrides (Union, Frost, Baker, Rec Center, yakʔitʸutʸu halls, Construction Innovations
+                   Center): breezeways cut through footprints, glazed lounge 'lanterns',
+                   blocks with different styles, projecting bands, glazed lanterns -- merged at load time, no data rebuild
+src/pacplaza.js    Performing Arts Center plaza (paving, bollards, benches, wire-mesh globes); PAC shells live in buildings.js
+src/atmosphere.js  aerial perspective: height-dependent haze + sun-side forward scattering (replaces three's fog chunks)
 src/shading.js     shader library: facade (windows, interior mapping, brick, metal, stucco palette), roofs, pavements, desire paths
 src/trees.js       LiDAR-placed instanced trees with clustered crowns, solid cores, limbs, 3-tier LOD
 src/grass.js       grass tufts around the camera     src/paths.js  sidewalks, pavers, steps, curbs, desire paths

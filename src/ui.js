@@ -21,6 +21,7 @@ export function setupUI(app) {
     <div class="row">
       <button id="btn-mode" title="G">Walk mode (G)</button>
       <button id="btn-tour" title="T">▶ Tour (T)</button>
+      <button id="btn-orbit" title="O">⟳ Orbit landmark (O)</button>
       <label>Time <input id="rng-time" type="range" min="0" max="24" step="0.1" value="${sky.hour}"><span id="lbl-time"></span></label>
       <label>Season <input id="rng-season" type="range" min="0" max="1" step="0.01" value="0.70"><span>green ↔ gold</span></label>
       <button id="btn-shot" title="P">📷 Save screenshot (P)</button>
@@ -83,6 +84,38 @@ export function setupUI(app) {
   tourBtn.addEventListener('click', toggleTour);
   renderer.domElement.addEventListener('pointerdown', () => { if (app.tour.active) toggleTour(); });
 
+  // ---- slow auto-orbit around the current target (the last landmark chosen)
+  const orbitBtn = bar.querySelector('#btn-orbit');
+  const setOrbit = (on) => {
+    if (on && walk.active) setMode('orbit');
+    controls.autoRotate = on; controls.autoRotateSpeed = 1.1;
+    orbitBtn.textContent = on ? '■ Stop orbit (O)' : '⟳ Orbit landmark (O)';
+  };
+  orbitBtn.addEventListener('click', () => setOrbit(!controls.autoRotate));
+  addEventListener('keydown', (e) => { if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return; if (e.code === 'KeyO') setOrbit(!controls.autoRotate); });
+  app.setOrbit = setOrbit;
+
+  // ---- WASD / QE / arrows also move the camera in orbit (flyover) mode: pan on the ground plane, Q/E (or Space/C) up/down
+  const held = new Set();
+  addEventListener('keydown', (e) => { if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return; if (e.ctrlKey || e.metaKey || e.altKey) return; held.add(e.code); });
+  addEventListener('keyup', (e) => held.delete(e.code));
+  addEventListener('blur', () => held.clear());
+  const fwd = new THREE.Vector3(), rgt = new THREE.Vector3(), mv = new THREE.Vector3();
+  app.flyKeys = (dt) => {
+    if (walk.active || !held.size) return;
+    const k = held; let f = 0, s = 0, u = 0;
+    if (k.has('KeyW') || k.has('ArrowUp')) f += 1; if (k.has('KeyS') || k.has('ArrowDown')) f -= 1;
+    if (k.has('KeyD') || k.has('ArrowRight')) s += 1; if (k.has('KeyA') || k.has('ArrowLeft')) s -= 1;
+    if (k.has('KeyE') || k.has('Space')) u += 1; if (k.has('KeyQ') || k.has('KeyC')) u -= 1;
+    if (!f && !s && !u) return;
+    camera.getWorldDirection(fwd); fwd.y = 0; if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize();
+    rgt.set(-fwd.z, 0, fwd.x);
+    const dist = camera.position.distanceTo(controls.target);
+    const speed = Math.max(8, dist * 0.7) * (k.has('ShiftLeft') || k.has('ShiftRight') ? 3 : 1);
+    mv.set(0, 0, 0).addScaledVector(fwd, f * speed * dt).addScaledVector(rgt, s * speed * dt); mv.y = u * speed * 0.6 * dt;
+    camera.position.add(mv); controls.target.add(mv);
+  };
+
   // ---- landmarks
   const lm = bar.querySelector('#lm');
   for (const L of LANDMARKS) {
@@ -100,6 +133,16 @@ export function setupUI(app) {
     });
     lm.appendChild(btn);
     L.pos = b;
+  }
+  // Performing Arts plaza: a ground-level look at the stepped front from the SE courtyard
+  {
+    const btn = document.createElement('button'); btn.textContent = 'PAC Plaza (courtyard)';
+    btn.addEventListener('click', () => {
+      const g = hf.at(405, 198);   // plaza grade (the lawn ring to the SE is higher)
+      if (walk.active) { walk.pos.set(418, hf.at(418, 214) + walk.eye, 214); walk.yaw = Math.atan2(-(385 - 418), -(168 - 214)); walk.pitch = 0.12; walk.apply(); }
+      else app.view([425, g + 2.4, 222], [386, g + 11, 168]);
+    });
+    lm.appendChild(btn);
   }
   const vista = document.createElement('button'); vista.textContent = 'Hill vista (Morros)';
   vista.addEventListener('click', () => { if (walk.active) setMode('orbit'); app.view([1000, hf.at(1000, -700) + 15, -700], [-3210, 120, -100]); });

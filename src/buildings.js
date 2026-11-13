@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { loadPBR, rng } from './util.js';
 import { makeRoofMaterial, patchWallMaterial, flatNormalTexture } from './shading.js';
 import { NIGHT } from './night.js';
+import { applyLandmarkStyle } from './landmarks.js';
 
 // ---------------------------------------------------------------------------------------------
 class Bucket {
@@ -44,6 +45,7 @@ export function createMaterials(manifest, anisotropy = 8) {
     mats[key] = m; return m;
   };
   for (const k of ['concrete_smooth', 'concrete_panels', 'concrete_slab', 'concrete_light']) tex(k, k, { nScale: 0.9 });
+  tex('concrete_board', 'concrete_slab', { tint: 0xd6cfc3, nScale: 1.2 });   // warm board-formed concrete (University Union)
   {
     // all stucco / plaster walls share one material; the per-building colour comes from a six-entry palette in the shader
     const pbr = loadPBR('plaster_white', anisotropy);
@@ -63,6 +65,7 @@ export function createMaterials(manifest, anisotropy = 8) {
   proc('brick_terracotta', 'brick', { brick: ['#b9714a', '#a8643f', '#c78258'] });   // Baker Center rainscreen
   proc('metal_silver', 'metal', { metal: '#aeb3b6' });
   proc('metal_silver_glass', 'metal', { metal: '#aeb3b6', glassReflect: 0.38 });
+  proc('pac_glass', 'metal', { metal: '#a9b7b8', glassReflect: 0.7 });
   proc('metal_dark', 'metal', { metal: '#4c4f52' });
   proc('metal_bronze', 'metal', { metal: '#6d6459' });
   proc('metal_red', 'metal', { metal: '#7d2e25' });
@@ -75,12 +78,18 @@ export function createMaterials(manifest, anisotropy = 8) {
     };
     mk('terracotta_panel', '#b26a47');
     mk('bronze_panel', '#887d6f');
+    mk('pac_panel', '#b5a78e');
   }
   mats.rail = new THREE.MeshStandardMaterial({ color: 0x2e3238, metalness: 0.75, roughness: 0.42 });
   mats.trim = new THREE.MeshStandardMaterial({ color: 0xe6dccb, roughness: 0.75, metalness: 0 });
   // landmark detailing: PAC's red roof fascia, pale parapet coping / cast-stone banding
   mats.fascia_red = new THREE.MeshStandardMaterial({ color: 0x8b2b20, metalness: 0.35, roughness: 0.48 });
   mats.coping = new THREE.MeshStandardMaterial({ color: 0xd7d1c3, roughness: 0.8, metalness: 0 });
+  for (const [k, c] of [['fin_orange', 0xd8641c], ['fin_amber', 0xe7a21f], ['fin_yellow', 0xd9c83a], ['fin_green', 0x7fae3a], ['fin_lime', 0xb4c63a], ['fin_red', 0xb23a26], ['fin_teal', 0x2f8d8a]])
+    mats[k] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.15, metalness: 0.05, emissive: c, emissiveIntensity: 0.10, transparent: true, opacity: 0.74, depthWrite: false, side: THREE.DoubleSide });   // coloured glass fins (yakʔitʸutʸu lounges)
+  mats.frame_bronze = new THREE.MeshStandardMaterial({ color: 0x4a3a30, roughness: 0.45, metalness: 0.55 });
+  mats.frame_copper = new THREE.MeshStandardMaterial({ color: 0x9a5532, roughness: 0.45, metalness: 0.5 });
+  mats.panel_red = new THREE.MeshStandardMaterial({ color: 0xa8321f, roughness: 0.5, metalness: 0.25 });   // Rec Center red rainscreen bands
   {
     // clock face for the Business / Education tower (white dial, black Roman-style ticks and hands, bronze bezel)
     const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
@@ -112,8 +121,10 @@ export function createMaterials(manifest, anisotropy = 8) {
   mats.roof_flat = makeRoofMaterial('flat', '#aeb0ac', '#8c8f8c', { seed: 6, side: THREE.FrontSide });
   mats.roof_flat_b = makeRoofMaterial('flat', '#6c6d6b', '#52534f', { seed: 7, side: THREE.FrontSide });
   mats.roof_flat_c = makeRoofMaterial('flat', '#8a7a66', '#6e6253', { seed: 8, side: THREE.FrontSide });
+  mats.roof_flat_new = makeRoofMaterial('flat', '#c4c5c1', '#a3a5a2', { seed: 11, side: THREE.FrontSide, aerial: false });   // built after the orthophoto
   for (const k of Object.keys(mats)) if (k.startsWith('roof_')) mats[k].userData.size = 1;
   mats.metal_silver_roof = mats.roof_metal_silver;
+  mats.roof_pac = makeRoofMaterial('seam', '#d6dce0', '#d6dce0', { seed: 5 });
   // glass house
   mats.glass = new THREE.MeshPhysicalMaterial({ color: 0xcfe6df, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false });
   mats.glass.userData.size = 2;
@@ -232,7 +243,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
   // grandstands are modelled by the bleacher generator; drop OSM building outlines that just trace the stands
   const stands = data.areas.filter((a) => a.k === 'bleachers').map((a) => a.rings[0]);
   const inStand = (x, z) => stands.some((r) => pointInsideRing(x, z, r));
-  for (const b of data.buildings) {
+  for (const b of expandPassages(data.buildings)) {
     const s = b.s;
     const P = b.p;
     { let cx0 = 0, cz0 = 0; const n0 = P.length / 2; for (let i = 0; i < n0; i++) { cx0 += P[i * 2]; cz0 += P[i * 2 + 1]; } cx0 /= n0; cz0 /= n0;
@@ -240,15 +251,16 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
     const n = P.length / 2;
     if (n < 3) continue;
 
-    // ground sampling
+    // ground sampling (over the whole original footprint, so the parts of a split building share one grade)
+    const PG = b._full || P, nG = PG.length / 2;
     let gMin = Infinity, gSum = 0;
-    for (let i = 0; i < n; i++) {
-      const g = hf.at(P[i * 2], P[i * 2 + 1]);
+    for (let i = 0; i < nG; i++) {
+      const g = hf.at(PG[i * 2], PG[i * 2 + 1]);
       gMin = Math.min(gMin, g); gSum += g;
     }
-    let cx = 0, cz = 0; for (let i = 0; i < n; i++) { cx += P[i * 2]; cz += P[i * 2 + 1]; } cx /= n; cz /= n;
+    let cx = 0, cz = 0; for (let i = 0; i < nG; i++) { cx += PG[i * 2]; cz += PG[i * 2 + 1]; } cx /= nG; cz /= nG;
     const gC = hf.at(cx, cz);
-    let pad = (gSum / n * 0.6 + gC * 0.4) + 0.12;
+    let pad = (gSum / nG * 0.6 + gC * 0.4) + 0.12;
     // ---- measured height / roof shape from the 2018 USGS LiDAR survey
     const lb = lidar && lidar[b.id];
     const useL = lb && lb.h != null && lb.cov > 0.35 && !s.noLidar;
@@ -276,10 +288,19 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       }
     }
     // landmark massing overrides (post-2018 buildings / bespoke roof forms)
+    if (/Christopher Cohan/i.test(b.n || '')) { s.pac = PAC; s.wall = 'pac_glass'; s.airfoil = null; s.atrium = null; s.drum = null; s.forceH = PAC.E[0]; s.tierBlank = 0;
+      // measure every height from the plaza grade at the front (the footprint average sits ~2 m lower)
+      for (const [fx, fz] of PAC.F) pad = Math.max(pad, hf.at(fx, fz) + 0.12); }
     if (s.forceH) { s.h = s.forceH; s.floors = Math.max(1, Math.round(s.h / s.floorH)); }
     if (s.noTiers && lb) { lb.tiers = null; lb.vaults = null; }
     const yBot = Math.min(gMin, pad) - 1.0;
-    const vaults = (useL && lb.vaults) || [];
+    const lift = b._lift || 0;
+    const isCut = (i) => {
+      if (!b._cuts) return false;
+      const n0 = P.length / 2, mx = (P[i * 2] + P[((i + 1) % n0) * 2]) / 2, mz = (P[i * 2 + 1] + P[((i + 1) % n0) * 2 + 1]) / 2;
+      return b._cuts.some(([cnx, cnz, cc]) => Math.abs(cnx * mx + cnz * mz - cc) < 0.08);
+    };
+    const vaults = (useL && lb.vaults && !s.noVaults) ? (b._split ? lb.vaults.filter((vt) => insideRing(vt.c[0], vt.c[1], P)) : lb.vaults) : [];
     // volumes that replace the flat-roof logic locally (vaults, tile wings): no tiers / rooftop units inside them
     const blockers = vaults.map((vt) => [vt.c[0], vt.c[1], vt.ang, vt.L / 2, vt.W / 2]);
     if (useL && lb.wings && b.rects) for (const w of lb.wings) { const r = b.rects[w[0]]; if (r) blockers.push([r[0], r[1], r[4], r[2], r[3]]); }
@@ -295,6 +316,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
     const rnd = rng(b.id >>> 0);
     let seed = rnd() * 0.96;
     if (s.frame === 'green') seed = 0.985;
+    if (s.frame === 'dark') seed = 0.62 + seed * 0.3;   // dark bronze / charcoal window frames
 
     const hasPoly = s.roof === 'hipPoly';
     const hasPitched = ((s.roof === 'hip' || s.roof === 'gable') && b.rects) || hasPoly;
@@ -312,14 +334,14 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
 
     // ---- entrance: the long edge closest to a walkway or street
     let doorEdge = -1, doorU = 0;
-    if (['academic', 'dorm', 'retail', 'church'].includes(s.kind) && b.a > 180) {
+    if (['academic', 'dorm', 'retail', 'church'].includes(s.kind) && b.a > 180 && !lift) {
       let bestD = 30;
       for (let i = 0; i < n; i++) {
         const px = P[i * 2], pz = P[i * 2 + 1], qx = P[((i + 1) % n) * 2], qz = P[((i + 1) % n) * 2 + 1];
         const len = Math.hypot(qx - px, qz - pz); if (len < 7) continue;
         const nx = (qz - pz) / len, nz = -(qx - px) / len;
         const mx = (px + qx) / 2 + nx * 4, mz = (pz + qz) / 2 + nz * 4;
-        if (pointInsideRing(mx, mz, P)) continue;           // inner courtyards etc.
+        if (pointInsideRing(mx, mz, P) || isCut(i)) continue;           // inner courtyards, passage sides
         const d = pathDist(mx, mz, 30) - len * 0.02;
         if (d < bestD) { bestD = d; doorEdge = i; }
       }
@@ -346,12 +368,12 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       const nS = smoothN(i, (i + n - 1) % n), nE = smoothN(i, (i + 1) % n);
       const cols = Math.max(1, Math.round(len / spBase));
       const sp = len / cols;
-      const ek = len < s.winW + 0.9 ? 0 : kind;
+      const ek = len < s.winW + 0.9 && kind !== 6 ? 0 : kind;      // curtain walls continue around short (curved) segments
       const hasDoor = i === doorEdge;
       const acc = s.accent === 'red' ? 1 : s.accent === 'green' ? 2 : 0;
       const A = [0, pad, sp, s.floorH], B = [s.winW, s.winH, ek, seed], C = [s.h, acc, hasDoor ? doorU : 0, hasDoor ? 1.15 : 0], D = [bandFlag(s), (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
       const ux = dx / len, uz = dz / len, ang = Math.atan2(dz, dx);
-      if (hasDoor && b.n && ['academic', 'dorm', 'church', 'retail'].includes(s.kind)) {
+      if (hasDoor && b.n && !(b._part > 0) && ['academic', 'dorm', 'church', 'retail'].includes(s.kind)) {
         const big = b.a > 650 || s.floors >= 3;
         signs.push({ x: p[0] + ux * doorU, z: p[1] + uz * doorU, ux, uz, nx, nz, y: pad + (big ? 3.32 : 3.65), out: big ? 0.45 : 0.03, name: b.n });
       }
@@ -371,16 +393,17 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
         }
       }
       // vertical concrete fins (e.g. the Pilling Building) at every bay boundary
-      if (s.fins && len > 6) {
-        const fb = bucket('concrete_light');
+      if (s.fins && len > 6 && !isCut(i)) {
+        const fb = bucket(s.finMat || 'concrete_light'), fd = s.finDepth || 0.44, fw = s.finW || 0.30;
+        const fy0 = lift ? pad + lift : s.finFrom ? pad + s.finFrom : pad - 0.1;
         for (let k = 0; k < cols; k++) {
           const off = k * sp;
-          addBox(fb, p[0] + ux * off + nx * 0.2, pad - 0.1, p[1] + uz * off + nz * 0.2, 0.30, s.h + 0.9, 0.44, ang, 1.6, [[0, pad, 1, 1], [0, 0, 0, seed], [0, 0, 0, 0], [0, 0, 0, 0]]);
+          addBox(fb, p[0] + ux * off + nx * (fd / 2 - 0.02), fy0, p[1] + uz * off + nz * (fd / 2 - 0.02), fw, pad + s.h + (s.finFrom ? 0 : 0.9) - fy0, fd, ang, 1.6, [[0, pad, 1, 1], [0, 0, 0, seed], [0, 0, 0, 0], [0, 0, 0, 0]]);
         }
       }
       // ---- colonnade: ground storey pulled back behind square piers
-      const arc = s.arcade && len > 8 && (hasDoor || pathDist(p[0] + ux * len / 2 + nx * 6, p[1] + uz * len / 2 + nz * 6, 25) < 18) ? s.arcade : null;
-      let wallFrom = yBot;
+      const arc = !lift && !isCut(i) && s.arcade && len > 8 && (s.arcadeAll || hasDoor || pathDist(p[0] + ux * len / 2 + nx * 6, p[1] + uz * len / 2 + nz * 6, 25) < 18) ? s.arcade : null;
+      let wallFrom = lift ? pad + lift : yBot;
       if (arc) {
         const yA = pad + arc.h, d0 = arc.d;
         wallFrom = yA;
@@ -413,7 +436,8 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
         const pa = [[0, pad, 1, 1], [0, 0, 0, seed], [arc.h, 0, 0, 0], [D[0], 0, 0.1, D[3]]];
         for (let k = 0; k < nP; k++) {
           const t = (k / (nP - 1)) * (len - arc.w) + arc.w / 2;
-          addBox(wb, p[0] + ux * t - nx * arc.w / 2, yBot, p[1] + uz * t - nz * arc.w / 2, arc.w, yA - yBot, arc.w, ang, ts, pa);
+          if (arc.round) addColumn(bucket('concrete_plain'), p[0] + ux * t - nx * arc.w * 0.9, yBot, p[1] + uz * t - nz * arc.w * 0.9, arc.w / 2, yA - yBot);
+          else addBox(wb, p[0] + ux * t - nx * arc.w / 2, yBot, p[1] + uz * t - nz * arc.w / 2, arc.w, yA - yBot, arc.w, ang, ts, pa);
         }
       }
       if (hasPitched && len > 6 && s.kind !== 'greenhouse') {
@@ -461,19 +485,46 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
     }
 
     // ---- projecting glazed entry atrium (Baker / Frost / PAC) on the chosen entrance bay
-    if (s.atrium && doorEdge >= 0) {
+    if (s.atrium && doorEdge >= 0 && !(b._part > 0)) {
       const i = doorEdge;
       const p = [P[i * 2], P[i * 2 + 1]], q = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
       const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz) || 1;
       const ux = dx / len, uz = dz / len, nx = dz / len, nz = -dx / len;
       addAtrium(bucket, wallKey, mats, s, p, ux, uz, nx, nz, doorU, pad, seed, ts, s.pal || 0, Math.atan2(dz, dx));
     }
-    if (s.drum && doorEdge >= 0) {
+    if (s.drum && doorEdge >= 0 && !(b._part > 0)) {
       const i = doorEdge;
       const p = [P[i * 2], P[i * 2 + 1]], q = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
       const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz) || 1;
       const ux = dx / len, uz = dz / len, nx = dz / len, nz = -dx / len;
       addDrum(bucket, wallKey, mats, s, p, ux, uz, nx, nz, doorU, pad, seed, ts, s.pal || 0);
+    }
+
+    // ---- projecting horizontal concrete bands (balcony parapets, heavy fascias)
+    if (s.bands) {
+      for (const bd of s.bands) {
+        const y = bd.top ? pad + s.h + (s.parapet || 0) - bd.h + 0.04 : pad + bd.y;
+        if (lift && y < pad + lift - 0.01) continue;
+        addBandRing(bucket(bd.mat || s.wall), P, y, bd.h, bd.out, isCut);
+      }
+    }
+    // ---- explicit volumes from the landmark table (glazed lanterns, towers) with optional louvers
+    if (s.boxes && !(b._part > 0)) for (const bx of s.boxes) addLandmarkBox(bucket, bx, pad, seed);
+    if (s.lanterns && !(b._part > 0)) for (const ln of s.lanterns) addLantern(bucket, b._full || P, pad, s.h, ln, seed);
+    // ---- breezeway under a bridge part: soffit (with a light strip) + paved floor
+    if (lift) {
+      const contour = []; for (let i = 0; i < n; i++) contour.push(new THREE.Vector2(P[i * 2], P[i * 2 + 1]));
+      let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { tris = []; }
+      const cb = bucket('concrete_plain');
+      for (const [yy, up] of [[pad + lift, false], [pad + 0.05, true]]) {
+        const base = cb.pos.length / 3;
+        for (const v of contour) cb.vert(v.x, yy, v.y, 0, up ? 1 : -1, 0, v.x / 1.5, v.y / 1.5);
+        for (const t of tris) {
+          const a = contour[t[0]], bb = contour[t[1]], c = contour[t[2]];
+          const cr = (bb.x - a.x) * (c.y - a.y) - (bb.y - a.y) * (c.x - a.x);
+          if ((cr < 0) === up) cb.tri(base + t[0], base + t[1], base + t[2]); else cb.tri(base + t[0], base + t[2], base + t[1]);
+        }
+      }
     }
 
     // ---- roofs
@@ -511,9 +562,10 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       if (s.coping) addEdgeBand(bucket('coping'), P, yTop + 0.01, 0.13, 0.52, 0, 1);
       if (s.fascia) addEdgeBand(bucket(s.fascia), P, yTop - 0.55, 0.34, 0.17, 0.07, 1);
       // rooftop equipment measured by LiDAR (HVAC units, stair/elevator penthouses)
-      if (useL && lb.units && lb.units.length) {
+      if (useL && lb.units && lb.units.length && !s.noUnits) {
         for (const u of lb.units) {
           const [ux0, uz0, uw, ud, ua, uh, ub] = u;
+          if (b._split && !insideRing(ux0, uz0, P)) continue;
           if (inVault(ux0, uz0)) continue;
           const big = uw * ud > 22;
           const key = big ? 'concrete_light' : 'metal_silver';
@@ -542,13 +594,14 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       else for (const r of b.rects) addPitchedRoof(rb, wb, r, wallTop, s, o, ts, wallKey, bucket('trim'));
     }
 
+    if (flat && s.pac) addPacShells(bucket, s, pad, seed);
     // ---- bespoke swept airfoil roof (PAC): a large wing over the glass base
     if (flat && s.airfoil) addAirfoilRoof(bucket('roof_metal_silver'), bucket('fascia_red'), bucket('metal_silver'), P, wallTop + (s.parapet || 0) + (s.airfoil.lift || 0), s.airfoil);
 
     // ---- big flat sun canopy floating above the roof on slim posts (Engineering IV group)
     if (s.canopy && flat) {
-      const tierTop = (useL && lb.tiers) ? Math.max(s.h, ...lb.tiers.map((t) => t.h)) : s.h;
-      const yC = pad + tierTop + 2.8, off = 1.6, m = n;
+      const tierTop = (useL && lb.tiers && !b._split) ? Math.max(s.h, ...lb.tiers.map((t) => t.h)) : s.h;
+      const yC = pad + tierTop + (s.canopyLift ?? 2.8), off = s.canopyOut ?? 1.6, m = n;
       const ring = [];
       for (let i = 0; i < m; i++) {
         const p0 = [P[((i + m - 1) % m) * 2], P[((i + m - 1) % m) * 2 + 1]], p1 = [P[i * 2], P[i * 2 + 1]], p2 = [P[((i + 1) % m) * 2], P[((i + 1) % m) * 2 + 1]];
@@ -585,6 +638,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
         if (t.h < prevH + 1.2) continue;
         for (const ring0 of t.rings) {
           let ring = ring0;
+          if (b._split) { let rx = 0, rz = 0; const rn = ring.length / 2; for (let i = 0; i < ring.length; i += 2) { rx += ring[i]; rz += ring[i + 1]; } if (!insideRing(rx / rn, rz / rn, P)) continue; }
           { let rx = 0, rz = 0; const rn = ring.length / 2; for (let i = 0; i < ring.length; i += 2) { rx += ring[i]; rz += ring[i + 1]; } if (inVault(rx / rn, rz / rn, -1)) continue; }
           let ar = 0; for (let i = 0; i < ring.length; i += 2) { const j = (i + 2) % ring.length; ar += ring[i] * ring[j + 1] - ring[j] * ring[i + 1]; }
           if (ar < 0) { const rr = []; for (let i = ring.length - 2; i >= 0; i -= 2) rr.push(ring[i], ring[i + 1]); ring = rr; }
@@ -597,6 +651,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
     //      the measured cross-section swept along the volume's axis, with end and side walls following it
     if (flat && vaults.length) {
       for (const vt of vaults) {
+        if (b._split && !insideRing(vt.c[0], vt.c[1], P)) continue;
         const ca = Math.cos(vt.ang), sa = Math.sin(vt.ang), e1 = [ca, sa], e2 = [-sa, ca];
         const hl = vt.L / 2, hw = vt.W / 2, pr = vt.prof, NS = pr.length, st = vt.W / NS;
         const to = (u, v) => [vt.c[0] + u * e1[0] + v * e2[0], vt.c[1] + u * e1[1] + v * e2[1]];
@@ -790,8 +845,8 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       }
     }
 
-    colliders.push({ id: b.id, p: P, top: pad + topH + 4, base: yBot, name: b.n, kind: s.kind, cx, cz });
-    if (b.n) info.push({ id: b.id, name: b.n, cx, cz, h: topH, pad });
+    if (!lift) colliders.push({ id: b.id, p: P, top: pad + topH + 4, base: yBot, name: b.n, kind: s.kind, cx, cz });
+    if (b.n && !(b._part > 0)) info.push({ id: b.id, name: b.n, cx, cz, h: topH, pad });
   }
 
   const group = new THREE.Group();
@@ -994,6 +1049,162 @@ function addCap(rb, a, b, wHalf, slope) {
   const aR = [a[0] - px, a[1] - drop + 0.02, a[2] - pz], bR = [b[0] - px, b[1] - drop + 0.02, b[2] - pz];
   const aT = [a[0], a[1] + lift, a[2]], bT = [b[0], b[1] + lift, b[2]];
   quad(aL, bL, bT, aT, wHalf); quad(aR, bR, bT, aT, wHalf);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Christopher Cohan Performing Arts Center: three stepped, curved silver standing-seam shells that
+// wrap the SE (plaza) front, each with a red lip over a glass band, climbing to the tall main hall
+// shell; beige panel end walls (the arched gables seen from the east) and a back wall.
+const PAC = {
+  // front edge of the footprint, SW -> NE (world x,z). Inward normal points NW, into the building.
+  F: [[368.1, 182.7], [374.7, 179], [380.2, 176.1], [386.7, 174.6], [393.1, 174], [398.1, 170.9], [402, 165.1], [406.5, 157.2], [410, 151.3], [416.6, 139.6]],
+  E: [4.0, 9.6, 15.2],         // lip height of each tier above ground
+  D: [0, 7.5, 15],              // depth of each tier's glass line behind the front edge
+  OV: [4.0, 3.2, 2.6],          // overhang past the glass
+  crest: 28, crestD: 36, backD: 66, backY: 19, glassH: 4.4,
+};
+export function pacCurve() {
+  // smooth the front curve (Catmull-Rom) and compute inward normals + arc length
+  const raw = PAC.F, pts = [];
+  for (let i = 0; i < raw.length - 1; i++) {
+    const p0 = raw[Math.max(0, i - 1)], p1 = raw[i], p2 = raw[i + 1], p3 = raw[Math.min(raw.length - 1, i + 2)];
+    for (let k = 0; k < 4; k++) {
+      const t = k / 4, t2 = t * t, t3 = t2 * t;
+      pts.push([0, 1].map((c) => 0.5 * ((2 * p1[c]) + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)));
+    }
+  }
+  pts.push(raw[raw.length - 1]);
+  const N = pts.length, nrm = [], arc = [0];
+  for (let i = 0; i < N; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N - 1, i + 1)];
+    const tx = b[0] - a[0], tz = b[1] - a[1], l = Math.hypot(tx, tz) || 1;
+    nrm.push([tz / l, -tx / l]);
+    if (i) arc.push(arc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  }
+  return { pts, nrm, arc, N };
+}
+function addPacShells(bucket, s, pad, seed) {
+  const C = PAC, rb = bucket('roof_pac'), ub = bucket('metal_silver'), fb = bucket('fascia_red'), gb = bucket(s.wall), pb = bucket('pac_panel');
+  const { pts, nrm, arc, N } = pacCurve();
+  let mnx = 0, mnz = 0; for (const q of nrm) { mnx += q[0]; mnz += q[1]; } { const l = Math.hypot(mnx, mnz) || 1; mnx /= l; mnz /= l; }
+  const at = (i, d, y) => {
+    const w = d <= 8 ? 0 : d >= 40 ? 1 : (() => { const t = (d - 8) / 32; return t * t * (3 - 2 * t); })();
+    return [pts[i][0] + (nrm[i][0] * (1 - w) + mnx * w) * d, y, pts[i][1] + (nrm[i][1] * (1 - w) + mnz * w) * d];
+  };
+  // emit a quad v0..v3 with winding chosen so the face normal points along (nx,ny,nz)
+  const quad = (bk, v0, v1, v2, v3, nx, ny, nz) => {
+    const P0 = [bk.pos[v0 * 3], bk.pos[v0 * 3 + 1], bk.pos[v0 * 3 + 2]], P1 = [bk.pos[v1 * 3], bk.pos[v1 * 3 + 1], bk.pos[v1 * 3 + 2]], P2 = [bk.pos[v2 * 3], bk.pos[v2 * 3 + 1], bk.pos[v2 * 3 + 2]];
+    const e1 = [P1[0] - P0[0], P1[1] - P0[1], P1[2] - P0[2]], e2 = [P2[0] - P0[0], P2[1] - P0[1], P2[2] - P0[2]];
+    const cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
+    if (cx * nx + cy * ny + cz * nz >= 0) { bk.tri(v0, v1, v2); bk.tri(v0, v2, v3); } else { bk.tri(v0, v2, v1); bk.tri(v0, v3, v2); }
+  };
+  // lofted surface over (u index i, depth samples) with smooth normals; flip = underside
+  const loft = (bk, depths, yf, thick = 0, flip = false, uvScale = 1, sh = null, ytaper = null) => {
+    const M = depths.length, g = [];
+    for (let i = 0; i < N; i++) { const row = []; for (let j = 0; j < M; j++) { const u = i / (N - 1), t = j / (M - 1); const y0 = yf(depths[j]); row.push(at(i, depths[j] + (sh ? sh(u, t) : 0), (ytaper ? ytaper(u, y0, depths[j]) : y0) - thick)); } g.push(row); }
+    const id = [];
+    for (let i = 0; i < N; i++) {
+      id.push([]);
+      for (let j = 0; j < M; j++) {
+        const a = g[Math.max(0, i - 1)][j], b = g[Math.min(N - 1, i + 1)][j], c = g[i][Math.max(0, j - 1)], d = g[i][Math.min(M - 1, j + 1)];
+        const du = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], dv = [d[0] - c[0], d[1] - c[1], d[2] - c[2]];
+        let nx = dv[1] * du[2] - dv[2] * du[1], ny = dv[2] * du[0] - dv[0] * du[2], nz = dv[0] * du[1] - dv[1] * du[0];
+        if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        const nl = Math.hypot(nx, ny, nz) || 1, k = flip ? -1 : 1;
+        id[i].push(bk.vert(g[i][j][0], g[i][j][1], g[i][j][2], k * nx / nl, k * ny / nl, k * nz / nl, arc[i] * uvScale, depths[j] * uvScale));
+      }
+    }
+    for (let i = 0; i < N - 1; i++) for (let j = 0; j < M - 1; j++) {
+      const a = id[i][j], b = id[i + 1][j], c = id[i + 1][j + 1], d = id[i][j + 1];
+      if (flip) { bk.tri(a, c, b); bk.tri(a, d, c); } else { bk.tri(a, b, c); bk.tri(a, c, d); }
+    }
+  };
+  const lin = (a, b, n) => Array.from({ length: n + 1 }, (_, k) => a + ((b - a) * k) / n);
+  // S-curve wobble of the upper tiers in plan (zero at the gable ends), and the main shell's tapered ends
+  const wob = (k, u) => [0, 1.9, 3.0][k] * Math.pow(Math.sin(Math.PI * u), 0.6) * Math.sin(2 * Math.PI * (1.05 * u) + 1.4 * k);
+  const taper = (u) => { const e = Math.min(u, 1 - u) / 0.22; const t = Math.min(1, e); return 0.45 + 0.55 * t * t * (3 - 2 * t); };
+  // tier roofs -----------------------------------------------------------------------------
+  const rises = [C.E[1] - C.glassH - C.E[0], C.E[2] - C.glassH - C.E[1]];
+  const secs = [];
+  for (let k = 0; k < 2; k++) secs.push({ k, d0: C.D[k] - C.OV[k], d1: C.D[k + 1] + 0.6, y0: pad + C.E[k], y1: pad + C.E[k] + rises[k], shape: (t) => Math.pow(t, 1.4) });
+  // main shell: rises steeply behind the last glass line to the crest, then falls to the back wall
+  const dm0 = C.D[2] - C.OV[2], y2 = pad + C.E[2], yc = pad + C.crest, yb = pad + C.backY;
+  const mainY = (d) => {
+    if (d <= C.crestD) { const t = Math.max(0, (d - dm0) / (C.crestD - dm0)); return y2 + (yc - y2) * (1 - Math.cos(Math.PI * 0.5 * Math.pow(t, 0.9))); }
+    const t = Math.min(1, (d - C.crestD) / (C.backD - C.crestD)); return yc - (yc - yb) * (1 - Math.cos(Math.PI * 0.5 * t)) ;
+  };
+  const surfY = [];
+  for (const sc of secs) {
+    const f = (d) => sc.y0 + (sc.y1 - sc.y0) * sc.shape(Math.min(1, Math.max(0, (d - sc.d0) / (sc.d1 - sc.d0))));
+    const ds = lin(sc.d0, sc.d1, 8);
+    const shf = (u, t) => wob(sc.k, u) * (1 - t) + wob(sc.k + 1, u) * t;
+    loft(rb, ds, f, 0, false, 1, shf); loft(ub, ds, f, 0.5, true, 1, shf);
+    surfY.push({ d0: sc.d0, d1: sc.d1, f });
+  }
+  {
+    const ds = lin(dm0, C.backD, 30);
+    const shm = (u, t) => wob(2, u) * Math.max(0, 1 - t * 3);
+    const tp = (u, y) => y2 + (y - y2) * taper(u);   // shell height tapers toward the gable ends
+    loft(rb, ds, mainY, 0, false, 1, shm, tp); loft(ub, ds, mainY, 0.55, true, 1, shm, tp); surfY.push({ d0: dm0, d1: C.backD, f: (d) => y2 + (mainY(d) - y2) * taper(0) });
+  }
+  const topAt = (d) => { let y = -1; for (const sc of surfY) if (d >= sc.d0 && d <= sc.d1) y = Math.max(y, sc.f(d)); return y; };
+  // red lips on the three front edges
+  const lipDepth = [C.D[0] - C.OV[0], C.D[1] - C.OV[1], C.D[2] - C.OV[2]];
+  for (let k = 0; k < 3; k++) {
+    const d = lipDepth[k], yTop = pad + C.E[k];
+    for (let i = 0; i < N - 1; i++) {
+      const w0 = wob(k, i / (N - 1)), w1 = wob(k, (i + 1) / (N - 1));
+      const a = at(i, d + w0, yTop + 0.04), b = at(i + 1, d + w1, yTop + 0.04), a2 = at(i, d + w0, yTop - 0.3), b2 = at(i + 1, d + w1, yTop - 0.3);
+      const nx = -(nrm[i][0] + nrm[i + 1][0]) / 2, nz = -(nrm[i][1] + nrm[i + 1][1]) / 2, nl = Math.hypot(nx, nz) || 1;
+      const l = arc[i + 1] - arc[i];
+      const v0 = fb.vert(a2[0], a2[1], a2[2], nx / nl, 0, nz / nl, 0, 0), v1 = fb.vert(b2[0], b2[1], b2[2], nx / nl, 0, nz / nl, l, 0);
+      const v2 = fb.vert(b[0], b[1], b[2], nx / nl, 0, nz / nl, l, 1), v3 = fb.vert(a[0], a[1], a[2], nx / nl, 0, nz / nl, 0, 1);
+      quad(fb, v0, v1, v2, v3, nx / nl, 0, nz / nl);
+    }
+  }
+  // glass bands for tiers 1 and 2 (tier 0's glass is the footprint wall) ---------------------
+  const fh = s.floorH || 4.4, B = [1.35, C.glassH / 3, 6, seed], D4 = [0, 0, 0.10, 0];
+  for (let k = 1; k < 3; k++) {
+    const d = C.D[k], yA = (surfY[k - 1].f(d)) - 0.05, yB = pad + C.E[k] - 0.5, Cc = [yB - yA, 0, 0, 0];
+    for (let i = 0; i < N - 1; i++) {
+      const w0 = wob(k, i / (N - 1)), w1 = wob(k, (i + 1) / (N - 1));
+      const a = at(i, d + w0, yA), b = at(i + 1, d + w1, yA), a2 = at(i, d + w0, yB), b2 = at(i + 1, d + w1, yB);
+      const nx = -(nrm[i][0] + nrm[i + 1][0]) / 2, nz = -(nrm[i][1] + nrm[i + 1][1]) / 2, nl = Math.hypot(nx, nz) || 1;
+      const at0 = [arc[i], yA, 3.2, fh], at1 = [arc[i + 1], yA, 3.2, fh];
+      const v0 = gb.vert(a[0], a[1], a[2], nx / nl, 0, nz / nl, arc[i] / 2, 0, at0, B, Cc, D4), v1 = gb.vert(b[0], b[1], b[2], nx / nl, 0, nz / nl, arc[i + 1] / 2, 0, at1, B, Cc, D4);
+      const v2 = gb.vert(b2[0], b2[1], b2[2], nx / nl, 0, nz / nl, arc[i + 1] / 2, 2, at1, B, Cc, D4), v3 = gb.vert(a2[0], a2[1], a2[2], nx / nl, 0, nz / nl, arc[i] / 2, 2, at0, B, Cc, D4);
+      quad(gb, v0, v1, v2, v3, nx / nl, 0, nz / nl);
+    }
+  }
+  // end walls (east + west gables) with a silver arch frame, and the back wall -----------------
+  for (const [ie, sg] of [[0, -1], [N - 1, 1]]) {
+    const tx = (pts[Math.min(N - 1, ie + 1)][0] - pts[Math.max(0, ie - 1)][0]), tz = (pts[Math.min(N - 1, ie + 1)][1] - pts[Math.max(0, ie - 1)][1]), tl = Math.hypot(tx, tz) || 1;
+    const ox = sg * tx / tl, oz = sg * tz / tl;
+    const ds = lin(-C.OV[0], C.backD, 90);
+    for (let j = 0; j < ds.length - 1; j++) {
+      const d0 = ds[j], d1 = ds[j + 1], t0 = topAt(d0), t1 = topAt(d1);
+      if (t0 < 0 || t1 < 0) continue;
+      const p0 = at(ie, d0, pad - 7), p1 = at(ie, d1, pad - 7), q0 = at(ie, d0, t0 - 0.5), q1 = at(ie, d1, t1 - 0.5);
+      const v0 = pb.vert(p0[0], p0[1], p0[2], ox, 0, oz, d0 / 2, 0), v1 = pb.vert(p1[0], p1[1], p1[2], ox, 0, oz, d1 / 2, 0);
+      const v2 = pb.vert(q1[0], q1[1], q1[2], ox, 0, oz, d1 / 2, (q1[1] - p1[1]) / 2), v3 = pb.vert(q0[0], q0[1], q0[2], ox, 0, oz, d0 / 2, (q0[1] - p0[1]) / 2);
+      quad(pb, v0, v1, v2, v3, ox, 0, oz);
+      // silver frame along the arch edge
+      const a = at(ie, d0, t0 + 0.05), b = at(ie, d1, t1 + 0.05), a2 = at(ie, d0, t0 - 0.9), b2 = at(ie, d1, t1 - 0.9);
+      const s0 = ub.vert(a2[0] + ox * 0.12, a2[1], a2[2] + oz * 0.12, ox, 0, oz, 0, 0), s1 = ub.vert(b2[0] + ox * 0.12, b2[1], b2[2] + oz * 0.12, ox, 0, oz, 1, 0);
+      const s2 = ub.vert(b[0] + ox * 0.12, b[1], b[2] + oz * 0.12, ox, 0, oz, 1, 1), s3 = ub.vert(a[0] + ox * 0.12, a[1], a[2] + oz * 0.12, ox, 0, oz, 0, 1);
+      quad(ub, s0, s1, s2, s3, ox, 0, oz);
+    }
+  }
+  // back wall
+  for (let i = 0; i < N - 1; i++) {
+    const a = at(i, C.backD, pad - 7), b = at(i + 1, C.backD, pad - 7), a2 = at(i, C.backD, mainY(C.backD) - 0.5), b2 = at(i + 1, C.backD, mainY(C.backD) - 0.5);
+    const nx = -nrm[i][0], nz = -nrm[i][1];
+    // back wall faces away from the plaza (toward -inward normal's opposite = +inward)
+    const bx = -nx, bz = -nz;
+    const v0 = pb.vert(a[0], a[1], a[2], bx, 0, bz, arc[i] / 2, 0), v1 = pb.vert(b[0], b[1], b[2], bx, 0, bz, arc[i + 1] / 2, 0);
+    const v2 = pb.vert(b2[0], b2[1], b2[2], bx, 0, bz, arc[i + 1] / 2, 8), v3 = pb.vert(a2[0], a2[1], a2[2], bx, 0, bz, arc[i] / 2, 8);
+    quad(pb, v0, v1, v2, v3, bx, 0, bz);
+  }
 }
 
 // Large swept airfoil / wing roof (the PAC's signature): a leaf-shaped plan with a cambered
@@ -1366,4 +1577,202 @@ function buildSigns(signs) {
   const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: tex, transparent: true, alphaTest: 0.35, metalness: 0.5, roughness: 0.45, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   m.name = 'signs';
   return m;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Breezeways: split a footprint along passage strips. Each strip becomes a "bridge" part (only the
+// floors above the clear height), the rest stays solid; all parts share the original id + grade.
+function clipHalf(P, nx, nz, c) {            // keep the side where nx*x + nz*z >= c
+  const n = P.length / 2, out = [];
+  for (let i = 0; i < n; i++) {
+    const x0 = P[i * 2], z0 = P[i * 2 + 1], x1 = P[((i + 1) % n) * 2], z1 = P[((i + 1) % n) * 2 + 1];
+    const d0 = nx * x0 + nz * z0 - c, d1 = nx * x1 + nz * z1 - c;
+    if (d0 >= 0) out.push(x0, z0);
+    if ((d0 >= 0) !== (d1 >= 0)) { const t = d0 / (d0 - d1); out.push(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t); }
+  }
+  // drop near-duplicate points
+  const o2 = [];
+  for (let i = 0; i < out.length; i += 2) { const k = o2.length; if (k && Math.hypot(out[i] - o2[k - 2], out[i + 1] - o2[k - 1]) < 0.05) continue; o2.push(out[i], out[i + 1]); }
+  if (o2.length >= 4 && Math.hypot(o2[0] - o2[o2.length - 2], o2[1] - o2[o2.length - 1]) < 0.05) o2.length -= 2;
+  return o2;
+}
+function ringArea(P) { let a = 0; const n = P.length / 2; for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += P[i * 2] * P[j * 2 + 1] - P[j * 2] * P[i * 2 + 1]; } return a / 2; }
+function expandPassages(buildings) {
+  const out = [];
+  for (const b of buildings) {
+    applyLandmarkStyle(b);
+    const ps = b.s.passages || [], sl = b.s.splits || [];
+    if (!ps.length && !sl.length) { out.push(b); continue; }
+    let parts = [{ p: b.p, lift: 0 }];
+    const cuts = [];
+    for (const pa of ps) {
+      const dx = pa.b[0] - pa.a[0], dz = pa.b[1] - pa.a[1], L = Math.hypot(dx, dz) || 1;
+      const nx = -dz / L, nz = dx / L, c0 = nx * pa.a[0] + nz * pa.a[1], hw = pa.w / 2;
+      cuts.push([nx, nz, c0 + hw], [nx, nz, c0 - hw]);
+      const next = [];
+      for (const pt of parts) {
+        if (pt.lift) { next.push(pt); continue; }
+        const A = clipHalf(pt.p, nx, nz, c0 + hw);
+        const B = clipHalf(pt.p, -nx, -nz, -(c0 - hw));
+        const M = clipHalf(clipHalf(pt.p, nx, nz, c0 - hw), -nx, -nz, -(c0 + hw));
+        for (const q of [A, B]) if (q.length >= 6 && Math.abs(ringArea(q)) > 3) next.push({ p: q, lift: 0 });
+        if (M.length >= 6 && Math.abs(ringArea(M)) > 3) next.push({ p: M, lift: pa.h });
+      }
+      parts = next;
+    }
+    // plain cut lines (no passage): divide the footprint into blocks that can take different styles
+    for (const sp of sl) {
+      const dx = sp.b[0] - sp.a[0], dz = sp.b[1] - sp.a[1], L = Math.hypot(dx, dz) || 1;
+      const nx = -dz / L, nz = dx / L, c0 = nx * sp.a[0] + nz * sp.a[1];
+      cuts.push([nx, nz, c0]);
+      const next = [];
+      for (const pt of parts) {
+        for (const q of [clipHalf(pt.p, nx, nz, c0), clipHalf(pt.p, -nx, -nz, -c0)]) if (q.length >= 6 && Math.abs(ringArea(q)) > 3) next.push({ p: q, lift: pt.lift });
+      }
+      parts = next;
+    }
+    // the largest solid part carries the name, sign and entrance features
+    parts.sort((u, v) => (u.lift ? 1 : 0) - (v.lift ? 1 : 0) || Math.abs(ringArea(v.p)) - Math.abs(ringArea(u.p)));
+    parts.forEach((pt, k) => {
+      let cx = 0, cz = 0; const m = pt.p.length / 2; for (let i = 0; i < m; i++) { cx += pt.p[i * 2]; cz += pt.p[i * 2 + 1]; }
+      const extra = b.s.cells ? b.s.cells(cx / m, cz / m, pt.lift, Math.abs(ringArea(pt.p))) || {} : {};
+      const pp = extra.fillet ? filletRing(pt.p, extra.fillet, cuts) : pt.p;
+      out.push({ ...b, p: pp, s: { ...b.s, ...extra }, rects: undefined, holes: undefined, _split: true, _part: k, _lift: pt.lift, _full: b.p, _cuts: cuts });
+    });
+  }
+  return out;
+}
+// projecting band around a footprint: one box per edge, lengthened so convex corners close up
+function addBandRing(bk, P, y, h, out, skip) {
+  const n = P.length / 2;
+  for (let i = 0; i < n; i++) {
+    if (skip && skip(i)) continue;
+    const p = [P[i * 2], P[i * 2 + 1]], q = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
+    const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz);
+    if (len < 0.4) continue;
+    const nx = dz / len, nz = -dx / len;
+    addBox(bk, (p[0] + q[0]) / 2 + nx * (out / 2 - 0.05), y, (p[1] + q[1]) / 2 + nz * (out / 2 - 0.05), len + out * 2, h, out + 0.1, Math.atan2(dz, dx), 1.6,
+      [[0, y - 6, 1, 1], [0, 0, 0, 0.5], [0, 0, 0, 0], [0, 0, 0, 0]]);
+  }
+}
+
+// explicit landmark volume: a rotated box with facade-shaded walls (curtain glass by default), a flat
+// roof, optional coping and horizontal sun-shade louvers on the given faces (0..3 = +u, +v, -u, -v)
+function addLandmarkBox(bucket, bx, pad, seed) {
+  const { c, w, d, h, ang = 0, y0 = 0 } = bx;
+  const key = bx.mat || 'metal_silver_glass';
+  const wb = bucket(key), ca = Math.cos(ang), sa = Math.sin(ang);
+  const to = (u, v) => [c[0] + u * ca - v * sa, c[1] + u * sa + v * ca];
+  const C = [to(-w / 2, -d / 2), to(w / 2, -d / 2), to(w / 2, d / 2), to(-w / 2, d / 2)];
+  const kind = { curtain: 6, ribbon: 2, grid: 1, none: 0 }[bx.win || 'curtain'] ?? 6;
+  const fh = bx.floorH || 4.2, yA = pad + y0 - 0.05, yB = pad + h;
+  const Bv = [bx.winW || 1.5, bx.winH || 2.0, kind, bx.seed ?? seed], Cv = [h, 0, 0, 0], Dv = [bx.panel ? 3 : 0, 0, bx.recess ?? 0.12, 0];
+  for (let i = 0; i < 4; i++) {
+    const p = C[i], q = C[(i + 1) % 4];
+    const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz);
+    const nx = dz / len, nz = -dx / len;
+    // the box corners are clockwise in x,z for ang=0 (u right, v down), so this normal points outward
+    const sp = len / Math.max(1, Math.round(len / (bx.spacing || 1.6)));
+    const v0 = wb.vert(p[0], yA, p[1], nx, 0, nz, 0, 0, [0, pad, sp, fh], Bv, Cv, Dv), v1 = wb.vert(q[0], yA, q[1], nx, 0, nz, len, 0, [len, pad, sp, fh], Bv, Cv, Dv);
+    const v2 = wb.vert(q[0], yB, q[1], nx, 0, nz, len, 1, [len, pad, sp, fh], Bv, Cv, Dv), v3 = wb.vert(p[0], yB, p[1], nx, 0, nz, 0, 1, [0, pad, sp, fh], Bv, Cv, Dv);
+    const e1 = [q[0] - p[0], 0, q[1] - p[1]], e2 = [0, 1, 0];
+    const cxn = e1[1] * e2[2] - e1[2] * e2[1], czn = e1[0] * e2[1] - e1[1] * e2[0];   // (q-p) x up
+    if (cxn * nx + czn * nz >= 0) { wb.tri(v0, v1, v2); wb.tri(v0, v2, v3); } else { wb.tri(v0, v2, v1); wb.tri(v0, v3, v2); }
+    // louvers: thin horizontal blades proud of this face
+    if (bx.louvers && (!bx.louverFaces || bx.louverFaces.includes(i))) {
+      const lb = bucket(bx.louverMat || 'metal_silver');
+      for (let y = y0 + (bx.louverFrom ?? 1.2); y < h - 0.4; y += bx.louvers) {
+        addBox(lb, (p[0] + q[0]) / 2 + nx * 0.55, pad + y, (p[1] + q[1]) / 2 + nz * 0.55, len + 0.2, 0.07, 0.9, Math.atan2(dz, dx), 1);
+      }
+      // slim vertical posts carrying the blades
+      for (let k = 0; k <= Math.round(len / 3); k++) {
+        const t = (k / Math.max(1, Math.round(len / 3))) * len;
+        addBox(lb, p[0] + (dx / len) * t + nx * 0.55, pad + y0, p[1] + (dz / len) * t + nz * 0.55, 0.08, h - y0, 0.9, Math.atan2(dz, dx), 1);
+      }
+    }
+  }
+  // roof + coping
+  const rb = bucket(bx.roofMat || 'roof_flat'), base = rb.pos.length / 3;
+  for (const q of C) rb.vert(q[0], yB + 0.02, q[1], 0, 1, 0, q[0], q[1]);
+  const cr = (C[1][0] - C[0][0]) * (C[2][1] - C[0][1]) - (C[1][1] - C[0][1]) * (C[2][0] - C[0][0]);
+  if (cr < 0) { rb.tri(base, base + 1, base + 2); rb.tri(base, base + 2, base + 3); } else { rb.tri(base, base + 2, base + 1); rb.tri(base, base + 3, base + 2); }
+  if (bx.coping !== 0) {
+    const P = [C[0][0], C[0][1], C[1][0], C[1][1], C[2][0], C[2][1], C[3][0], C[3][1]];
+    addBandRing(bucket(bx.copingMat || 'metal_silver'), P, yB - 0.1, 0.5, 0.25);
+  }
+}
+
+// round off the convex corners of a ring (radius r), leaving corners that sit on a cut line square
+function filletRing(P, r, cuts) {
+  const n = P.length / 2, out = [];
+  const onCut = (x, z) => cuts.some(([nx, nz, c]) => Math.abs(nx * x + nz * z - c) < 0.08);
+  const sgn = Math.sign(ringArea(P));
+  for (let i = 0; i < n; i++) {
+    const a = [P[((i + n - 1) % n) * 2], P[((i + n - 1) % n) * 2 + 1]], b = [P[i * 2], P[i * 2 + 1]], c = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
+    const l1 = Math.hypot(b[0] - a[0], b[1] - a[1]), l2 = Math.hypot(c[0] - b[0], c[1] - b[1]);
+    const d1 = [(b[0] - a[0]) / l1, (b[1] - a[1]) / l1], d2 = [(c[0] - b[0]) / l2, (c[1] - b[1]) / l2];
+    const cross = d1[0] * d2[1] - d1[1] * d2[0];
+    const turn = Math.acos(Math.max(-1, Math.min(1, d1[0] * d2[0] + d1[1] * d2[1])));
+    const t = Math.min(r * Math.tan(turn / 2), l1 * 0.45, l2 * 0.45);
+    if (onCut(b[0], b[1]) || cross * sgn <= 0 || turn < 0.35 || t < 0.5) { out.push(b[0], b[1]); continue; }
+    const rr = t / Math.tan(turn / 2), N = Math.max(4, Math.round(turn / 0.12));
+    const p0 = [b[0] - d1[0] * t, b[1] - d1[1] * t];
+    const nrm = [-d1[1] * Math.sign(cross), d1[0] * Math.sign(cross)];
+    const cc = [p0[0] + nrm[0] * rr, p0[1] + nrm[1] * rr];
+    const a0 = Math.atan2(p0[1] - cc[1], p0[0] - cc[0]);
+    for (let k = 0; k <= N; k++) { const ang = a0 + Math.sign(cross) * turn * (k / N); out.push(cc[0] + Math.cos(ang) * rr, cc[1] + Math.sin(ang) * rr); }
+  }
+  return out;
+}
+// round column (cylinder) for colonnades
+function addColumn(bk, x, y0, z, r, h, seg = 16) {
+  for (let i = 0; i < seg; i++) {
+    const a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2;
+    const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
+    const v0 = bk.vert(x + c0 * r, y0, z + s0 * r, c0, 0, s0, i / seg * 2, 0), v1 = bk.vert(x + c1 * r, y0, z + s1 * r, c1, 0, s1, (i + 1) / seg * 2, 0);
+    const v2 = bk.vert(x + c1 * r, y0 + h, z + s1 * r, c1, 0, s1, (i + 1) / seg * 2, h / 1.5), v3 = bk.vert(x + c0 * r, y0 + h, z + s0 * r, c0, 0, s0, i / seg * 2, h / 1.5);
+    bk.tri(v0, v2, v1); bk.tri(v0, v3, v2);
+  }
+}
+
+// glazed lounge "lantern" on a bar building: a full-height glass box pushed out of one long side at a
+// fraction u along the footprint's principal axis, with a thick metal frame and coloured glass fins
+function addLantern(bucket, P, pad, h, ln, seed) {
+  const n = P.length / 2;
+  let cx = 0, cz = 0; for (let i = 0; i < n; i++) { cx += P[i * 2]; cz += P[i * 2 + 1]; } cx /= n; cz /= n;
+  let sxx = 0, szz = 0, sxz = 0;
+  for (let i = 0; i < n; i++) { const x = P[i * 2] - cx, z = P[i * 2 + 1] - cz; sxx += x * x; szz += z * z; sxz += x * z; }
+  const th = 0.5 * Math.atan2(2 * sxz, sxx - szz), a = [Math.cos(th), Math.sin(th)], q = [-a[1], a[0]];
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let i = 0; i < n; i++) { const x = P[i * 2] - cx, z = P[i * 2 + 1] - cz; const u = x * a[0] + z * a[1], v = x * q[0] + z * q[1]; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+  const w = ln.w || 9, d = ln.d || 3, side = ln.side || 1, H = h + (ln.extra ?? 1.0);
+  const uc = u0 + (ln.u ?? 0.15) * (u1 - u0);
+  // the facade on that side at this station along the bar (footprints are notched, so not the bbox)
+  let vf = side > 0 ? -Infinity : Infinity;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const xa = P[i * 2] - cx, za = P[i * 2 + 1] - cz, xb = P[j * 2] - cx, zb = P[j * 2 + 1] - cz;
+    const ua = xa * a[0] + za * a[1], ub = xb * a[0] + zb * a[1];
+    if ((ua - uc) * (ub - uc) > 0 || ua === ub) continue;
+    const t = (uc - ua) / (ub - ua), va = xa * q[0] + za * q[1], vb = xb * q[0] + zb * q[1], v = va + (vb - va) * t;
+    vf = side > 0 ? Math.max(vf, v) : Math.min(vf, v);
+  }
+  if (!isFinite(vf)) vf = side > 0 ? v1 : v0;
+  const vc = vf + side * (d / 2 - (ln.inset ?? 1.2));
+  const c = [cx + a[0] * uc + q[0] * vc, cz + a[1] * uc + q[1] * vc];
+  addLandmarkBox(bucket, { c, w, d, h: H, ang: th, spacing: 1.25, winH: 2.6, floorH: ln.floorH || 3.3, coping: 0, roofMat: 'roof_flat' }, pad, seed);
+  // frame: two posts + head + sill band on the outward face, wrapping the sides
+  const fb = bucket(ln.frame || 'frame_bronze'), out = side * (d / 2 + 0.15);
+  const fx = (du, dv) => [c[0] + a[0] * du + q[0] * dv, c[1] + a[1] * du + q[1] * dv];
+  for (const sg of [-1, 1]) { const [x, z] = fx(sg * (w / 2 + 0.05), side * (d / 2 - 0.1)); addBox(fb, x, pad - 0.05, z, 0.75, H + 0.4, 0.8, th, 1); }   // front-edge posts only: the sides stay glass
+  { const [x, z] = fx(0, side * 0.1); addBox(fb, x, pad + H - 0.6, z, w + 0.8, 1.0, d + 0.5, th, 1); }
+  // coloured glass fins standing proud of the glass
+  const cols = ln.fins || ['fin_orange', 'fin_amber', 'fin_yellow'];
+  const nF = Math.max(3, Math.round(w / 1.25));
+  for (let k = 0; k < nF; k++) {
+    const du = -w / 2 + 0.5 + (k / (nF - 1)) * (w - 1.0);
+    const [x, z] = fx(du, out + side * 0.35);
+    const r = Math.abs(Math.sin(k * 12.9898 + seed * 78.233)) % 1;
+    addBox(bucket(cols[Math.floor(r * cols.length * 0.999)]), x, pad + 0.6, z, 0.05, H - 1.3, 0.8, th + side * 0.75, 1);   // angled coloured glass panes
+  }
 }
