@@ -161,6 +161,37 @@ LANDMARK_STYLES.push({
   },
 });
 
+// ---- Robert E. Kennedy Library (Marquis, 1977; Miller Hull renovation 2025): five storeys of pale
+// cast-in-place concrete. Every floor is a deep spandrel band under a ribbon of glass shaded by
+// closely spaced concrete fins; the upper floors step back in terraces on the north and east sides and
+// around the central courtyard (plate outlines measured from the 2018 LiDAR, in a building-aligned frame).
+{
+  const FH = 4.45, L = (k) => k * FH;
+  const lib = { wall: 'concrete_cream', spacing: 1.5, fins: { d: 0.6, w: 0.22, from: 1.3 }, recess: 0.35 };
+  const band = (k) => ({ y: L(k) - 0.35, h: 1.65, out: 0.6 }), cap = (k, h = 1.0) => ({ y: L(k) - 0.05, h, out: 0.5 });
+  const court = [[-22, 6], [16, 6], [16, 26], [-22, 26]];
+  LANDMARK_STYLES.push({
+    re: /^Robert E\. Kennedy Library$/,
+    s: {
+      plateFrame: { o: [-215.1, -135.9], ang: -0.2237 }, plateSeed: 0.72, flatMat: 'roof_flat_c',
+      plates: [
+        // ground floor: glazing set back behind square columns
+        { ...lib, poly: 'footprint', holes: 'footprint', y0: 0, y1: L(1), inset: 3.0, win: 'storefront', spacing: 3.75, fins: null, columns: { sp: 7.5, w: 0.8 } },
+        { ...lib, poly: [[-44.3, -23.5], [33.2, -23.5], [33.5, -17.4], [31.8, -14.2], [31.9, 3.6], [39.7, 3.9], [39.7, 38.3], [-44.3, 38.6]], holes: 'footprint',
+          y0: L(1), y1: L(2), soffit: 1, bands: [band(1), cap(2)] },
+        { ...lib, poly: [[-42, -18.5], [30, -18.5], [30, 6], [37.5, 6], [37.5, 38.5], [-42, 38.5]], holes: [[[-18, 10], [14, 10], [14, 26], [-18, 26]]],
+          y0: L(2), y1: L(3), bands: [band(2), cap(3)] },
+        { ...lib, poly: [[-42, -18.5], [-30, -18.5], [-30, -14], [18, -14], [18, -18.5], [30, -18.5], [30, 6], [34, 6], [34, 38.5], [-42, 38.5]], holes: [court],
+          y0: L(3), y1: L(4), bands: [band(3), cap(4)] },
+        { ...lib, poly: [[-42, -14], [30, -14], [30, 38.5], [-42, 38.5]], holes: [court], y0: L(4), y1: L(5), bands: [band(4), cap(5, 1.3)] },
+        // solid stair towers on the north face
+        { wall: 'concrete_cream', win: 'none', poly: [[-28.7, -19.5], [-24, -19.5], [-24, -13.5], [-28.7, -13.5]], y0: L(2), y1: L(5) + 1.3 },
+        { wall: 'concrete_cream', win: 'none', poly: [[12.5, -19.5], [18.4, -19.5], [18.4, -13.5], [12.5, -13.5]], y0: L(2), y1: L(5) + 1.3 },
+      ],
+    },
+  });
+}
+
 export function applyLandmarkStyle(b) {
   if (!b.n || b._lmDone) return;
   b._lmDone = true;

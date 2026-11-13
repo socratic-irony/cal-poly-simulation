@@ -45,7 +45,8 @@ export function createMaterials(manifest, anisotropy = 8) {
     mats[key] = m; return m;
   };
   for (const k of ['concrete_smooth', 'concrete_panels', 'concrete_slab', 'concrete_light']) tex(k, k, { nScale: 0.9 });
-  tex('concrete_board', 'concrete_slab', { tint: 0xd6cfc3, nScale: 1.2 });   // warm board-formed concrete (University Union)
+  tex('concrete_board', 'concrete_slab', { tint: 0xd6cfc3, nScale: 1.2 });
+  tex('concrete_cream', 'concrete_light', { tint: new THREE.Color(1.42, 1.38, 1.27), nScale: 0.8 });   // cleaned cast-in-place concrete (Kennedy Library)   // warm board-formed concrete (University Union)
   {
     // all stucco / plaster walls share one material; the per-building colour comes from a six-entry palette in the shader
     const pbr = loadPBR('plaster_white', anisotropy);
@@ -318,6 +319,12 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
     if (s.frame === 'green') seed = 0.985;
     if (s.frame === 'dark') seed = 0.62 + seed * 0.3;   // dark bronze / charcoal window frames
 
+    if (s.plates) {
+      const top = addPlates(bucket, b, s, pad, s.plateSeed ?? seed, mats);
+      colliders.push({ id: b.id, p: P, top: pad + top + 4, base: yBot, name: b.n, kind: s.kind, cx, cz });
+      if (b.n) info.push({ id: b.id, name: b.n, cx, cz, h: top, pad });
+      continue;
+    }
     const hasPoly = s.roof === 'hipPoly';
     const hasPitched = ((s.roof === 'hip' || s.roof === 'gable') && b.rects) || hasPoly;
     const flat = !hasPitched;
@@ -1775,4 +1782,106 @@ function addLantern(bucket, P, pad, h, ln, seed) {
     const r = Math.abs(Math.sin(k * 12.9898 + seed * 78.233)) % 1;
     addBox(bucket(cols[Math.floor(r * cols.length * 0.999)]), x, pad + 0.6, z, 0.05, H - 1.3, 0.8, th + side * 0.75, 1);   // angled coloured glass panes
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Bespoke massing from stacked "floor plates" (Kennedy Library, ...). Each plate is a polygon with
+// optional holes (courtyards), in a building-aligned local frame, that gets a facade wall, optional
+// shade fins, projecting bands, perimeter columns and a flat roof. Rings are normalised so that
+// (dz, -dx) points out of the solid for both the outer ring and the holes.
+function offsetRing(P, d) {
+  const n = P.length / 2, out = [];
+  for (let i = 0; i < n; i++) {
+    const a = [P[((i + n - 1) % n) * 2], P[((i + n - 1) % n) * 2 + 1]], b = [P[i * 2], P[i * 2 + 1]], c = [P[((i + 1) % n) * 2], P[((i + 1) % n) * 2 + 1]];
+    const l0 = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, l1 = Math.hypot(c[0] - b[0], c[1] - b[1]) || 1;
+    const n0 = [(b[1] - a[1]) / l0, -(b[0] - a[0]) / l0], n1 = [(c[1] - b[1]) / l1, -(c[0] - b[0]) / l1];
+    const k = Math.max(0.3, 1 + n0[0] * n1[0] + n0[1] * n1[1]);
+    out.push(b[0] + ((n0[0] + n1[0]) / k) * d, b[1] + ((n0[1] + n1[1]) / k) * d);
+  }
+  return out;
+}
+const revRing = (P) => { const r = []; for (let i = P.length - 2; i >= 0; i -= 2) r.push(P[i], P[i + 1]); return r; };
+function addPlates(bucket, b, s, pad, seed, mats) {
+  const F = s.plateFrame || { o: [0, 0], ang: 0 }, ca = Math.cos(F.ang), sa = Math.sin(F.ang);
+  const toW = (ring) => { const r = []; for (const [u, v] of ring) r.push(F.o[0] + u * ca - v * sa, F.o[1] + u * sa + v * ca); return r; };
+  let top = 0;
+  for (const pl of s.plates) {
+    let outer = pl.poly === 'footprint' ? b.p.slice() : toW(pl.poly);
+    let holes = pl.holes === 'footprint' ? (b.holes || []).map((h) => h.slice()) : (pl.holes || []).map(toW);
+    if (ringArea(outer) < 0) outer = revRing(outer);
+    holes = holes.map((h) => (ringArea(h) > 0 ? revRing(h) : h));
+    const outline = [outer, ...holes];
+    const rings = pl.inset ? outline.map((r) => offsetRing(r, -pl.inset)) : outline;
+    const y0 = pad + pl.y0, y1 = pad + pl.y1, h = pl.y1 - pl.y0;
+    top = Math.max(top, pl.y1);
+    const key = pl.wall || s.wall, wb = bucket(key), ts = mats[key]?.userData.size || 2;
+    const kind = KIND[pl.win ?? 'ribbon'] ?? 2, sp0 = pl.spacing || 1.5, fh = pl.floorH || h;
+    const Bv = [pl.winW || 1.2, pl.winH || 2.0, kind, pl.seed ?? seed], Cv = [h, 0, 0, 0], Dv = [pl.panel ? 3 : 0, 0, pl.recess ?? 0.3, 0];
+    for (const R of rings) {
+      const n = R.length / 2;
+      for (let i = 0; i < n; i++) {
+        const p = [R[i * 2], R[i * 2 + 1]], q = [R[((i + 1) % n) * 2], R[((i + 1) % n) * 2 + 1]];
+        const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz);
+        if (len < 0.05) continue;
+        const nx = dz / len, nz = -dx / len, ux = dx / len, uz = dz / len, ang = Math.atan2(dz, dx);
+        const cols = Math.max(1, Math.round(len / sp0)), sp = len / cols;
+        const Bw = len < 1.2 ? [Bv[0], Bv[1], 0, Bv[3]] : Bv;
+        const v0 = wb.vert(p[0], y0, p[1], nx, 0, nz, 0, y0 / ts, [0, y0, sp, fh], Bw, Cv, Dv);
+        const v1 = wb.vert(q[0], y0, q[1], nx, 0, nz, len / ts, y0 / ts, [len, y0, sp, fh], Bw, Cv, Dv);
+        const v2 = wb.vert(q[0], y1, q[1], nx, 0, nz, len / ts, y1 / ts, [len, y0, sp, fh], Bw, Cv, Dv);
+        const v3 = wb.vert(p[0], y1, p[1], nx, 0, nz, 0, y1 / ts, [0, y0, sp, fh], Bw, Cv, Dv);
+        wb.tri(v1, v0, v3); wb.tri(v1, v3, v2);
+        if (pl.fins && len > 2) {
+          const fb = bucket(pl.finMat || key), fd = pl.fins.d ?? 0.55, fw = pl.fins.w ?? 0.2, f0 = pl.fins.from ?? 1.3, f1 = pl.fins.to ?? h;
+          for (let k = 0; k <= cols; k++) {
+            const off = Math.min(len - fw / 2, Math.max(fw / 2, k * sp));
+            addBox(fb, p[0] + ux * off + nx * (fd / 2 - 0.02), y0 + f0, p[1] + uz * off + nz * (fd / 2 - 0.02), fw, f1 - f0, fd, ang, 1.6, [[0, y0 - 8, 1, 1], [0, 0, 0, seed], [0, 0, 0, 0], [0, 0, 0, 0]]);
+          }
+        }
+      }
+    }
+    // roof
+    {
+      const rb = bucket(pl.roof || s.flatMat || 'roof_flat_c'); rb.tint = s._tint || [1, 1, 1];
+      const contour = [], hs = [];
+      for (let i = 0; i < rings[0].length; i += 2) contour.push(new THREE.Vector2(rings[0][i], rings[0][i + 1]));
+      for (const hR of rings.slice(1)) { const r = []; for (let i = 0; i < hR.length; i += 2) r.push(new THREE.Vector2(hR[i], hR[i + 1])); hs.push(r); }
+      let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, hs); } catch (e) { tris = []; }
+      const all = contour.concat(...hs), base = rb.pos.length / 3;
+      for (const v of all) rb.vert(v.x, y1 + 0.02, v.y, 0, 1, 0, v.x, v.y);
+      for (const t of tris) {
+        const a = all[t[0]], bb = all[t[1]], c = all[t[2]];
+        const cr = (bb.x - a.x) * (c.y - a.y) - (bb.y - a.y) * (c.x - a.x);
+        if (cr < 0) rb.tri(base + t[0], base + t[1], base + t[2]); else rb.tri(base + t[0], base + t[2], base + t[1]);
+      }
+      // soffit for plates that overhang the one below (ground floor inset)
+      if (pl.soffit) {
+        const cb = bucket('concrete_plain'), b2 = cb.pos.length / 3;
+        for (const v of all) cb.vert(v.x, y0 - 0.02, v.y, 0, -1, 0, v.x / 1.5, v.y / 1.5);
+        for (const t of tris) {
+          const a = all[t[0]], bb = all[t[1]], c = all[t[2]];
+          const cr = (bb.x - a.x) * (c.y - a.y) - (bb.y - a.y) * (c.x - a.x);
+          if (cr < 0) cb.tri(b2 + t[0], b2 + t[2], b2 + t[1]); else cb.tri(b2 + t[0], b2 + t[1], b2 + t[2]);
+        }
+      }
+    }
+    for (const bd of pl.bands || []) for (const R of rings) addBandRing(bucket(bd.mat || key), R, pad + bd.y, bd.h, bd.out);
+    // square columns standing on the un-inset outline
+    if (pl.columns) {
+      const cb = bucket(pl.columns.mat || key), cw = pl.columns.w || 0.75;
+      for (const R of outline) {
+        const n = R.length / 2;
+        for (let i = 0; i < n; i++) {
+          const p = [R[i * 2], R[i * 2 + 1]], q = [R[((i + 1) % n) * 2], R[((i + 1) % n) * 2 + 1]];
+          const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz); if (len < 3) continue;
+          const nx = dz / len, nz = -dx / len, m = Math.max(1, Math.round(len / (pl.columns.sp || 7.5)));
+          for (let k = 0; k < m; k++) {
+            const t = (k / m) * len + cw / 2;
+            addBox(cb, p[0] + (dx / len) * t - nx * cw / 2, y0 - 0.6, p[1] + (dz / len) * t - nz * cw / 2, cw, h + 0.6, cw, Math.atan2(dz, dx), 1.6, [[0, y0 - 8, 1, 1], [0, 0, 0, seed], [0, 0, 0, 0], [0, 0, 0, 0]]);
+          }
+        }
+      }
+    }
+  }
+  return top;
 }
