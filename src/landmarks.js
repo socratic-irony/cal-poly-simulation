@@ -79,11 +79,9 @@ LANDMARK_STYLES.push(
     s: {
       atrium: null, noLidar: 1,
       passages: [FROST_WAIST],
-      // glazed atrium roof between the towers, and dark mechanical screens set back on the tallest blocks
+      // glazed atrium roof between the towers (the interior photos show a top-lit atrium; its exact outline is estimated)
       boxes: [
         { c: [49, -117], w: 28, d: 12, y0: 18.6, h: 21.2, ang: 0, mat: 'pac_glass', spacing: 1.6, winH: 2.4, floorH: 2.8, copingMat: 'coping', roofMat: 'roof_metal_silver' },
-        { c: [20, -116], w: 10, d: 12, y0: 22.8, h: 25.4, ang: 0, mat: 'metal_dark', win: 'none', coping: 0, roofMat: 'roof_flat_new' },
-        { c: [78, -128], w: 9, d: 14, y0: 23.8, h: 26.4, ang: 0, mat: 'metal_dark', win: 'none', coping: 0, roofMat: 'roof_flat_new' },
       ],
       splits: [{ a: [31, -200], b: [31, -50] }, { a: [89, -200], b: [89, -50] }, { a: [-50, -128], b: [200, -128] }, { a: [-50, -150], b: [200, -150] }],
       cells: (x, z, lift) => {
@@ -127,7 +125,7 @@ LANDMARK_STYLES.push({
 const YTT = {
   wall: 'stucco_white', pal: 0, panel: 0, stone: 0, belt: 0, trim: 0, lites: 0, coping: 1, frame: 'dark',
   win: 'grid', winW: 2.3, winH: 1.55, winSpacing: 3.7, floorH: 3.2, recess: 0.32, parapet: 0.45,
-  roof: 'flat', noUnits: 1, kind: 'dorm', flatForce: 'roof_flat_new', baseH: 6.4, basePal: 3,
+  roof: 'flat', noUnits: 1, kind: 'dorm', flatForce: 'roof_flat_new',
 };
 const YTT_HALLS = {
   A: { fins: ['fin_orange', 'fin_amber', 'fin_yellow'], frame: 'frame_copper', at: [[0.12, 1], [0.86, -1]] },
@@ -141,7 +139,8 @@ const YTT_HALLS = {
 for (const [k, H] of Object.entries(YTT_HALLS)) {
   LANDMARK_STYLES.push({
     re: new RegExp('^172' + k + ' '),
-    s: { ...YTT, lanterns: H.at.map(([u, side]) => ({ u, side, w: 9.5, d: 3.2, fins: H.fins, frame: H.frame })) },
+    // cream lower storeys on alternate halls: the architect's photos show them on some halls and plain white on others
+    s: { ...YTT, ...('ACEG'.includes(k) ? { baseH: 6.4, basePal: 3 } : {}), lanterns: H.at.map(([u, side]) => ({ u, side, w: 9.5, d: 3.2, fins: H.fins, frame: H.frame })) },
   });
 }
 
@@ -228,10 +227,14 @@ LANDMARK_STYLES.push({
   });
   // the rest of the Engineering Plaza group shares the gold panels and floating sun canopies
   LANDMARK_STYLES.push({ re: /^Advanced Technologies Laboratory$/, s: { wall: 'ochre_panel', panel: 1, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, canopyLift: 1.6, canopyOut: 2.4 } });
-  // Reinhold Aerospace Engineering Laboratories (same complex): a two-storey lab block in the family palette
-  LANDMARK_STYLES.push({ re: /^Reinhold Aerospace/, s: { wall: 'metal_silver', roof: 'flat', panel: 0, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, lites: 0,
-    win: 'ribbon', winSpacing: 3.0, floorH: 3.9, brickBase: 1, baseMat: 'ochre_panel', parapet: 0.5, coping: 1,
-    bands: [{ y: 0, top: 1, h: 0.5, out: 0.12, mat: 'metal_dark' }] } });
+  // Building 41 complex (reference/photos/BrownEng.JPG): pale grey concrete block, a long smoked-glass curtain wall
+  // and dark grey metal. 41-A Grant M. Brown Engineering takes the dark glass; 41-B Baldwin and Mary Reinhold Aerospace
+  // Engineering Laboratories (wind tunnel labs) is modelled as the block-and-dark-metal part of the same complex.
+  LANDMARK_STYLES.push({ re: /^Brown Engineering$/, s: { wall: 'dark_glass', win: 'curtain', winW: 1.5, winH: 2.4, winSpacing: 1.5, floorH: 3.9, pal: 0, panel: 0, stone: 0,
+    trim: 0, belt: 0, lites: 0, parapet: 0.4, coping: 1, bands: [{ y: 0, top: 1, h: 0.6, out: 0.1, mat: 'metal_dark' }] } });
+  LANDMARK_STYLES.push({ re: /^Reinhold Aerospace/, s: { wall: 'concrete_light', roof: 'flat', stone: 1, panel: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, lites: 0,
+    win: 'grid', winW: 1.7, winH: 1.5, winSpacing: 6.5, floorH: 3.9, recess: 0.3, parapet: 0.5, coping: 0,
+    bands: [{ y: 0, top: 1, h: 1.5, out: 0.12, mat: 'metal_dark' }] } });
   // Engineering IV (AC Martin, 2007; Aerospace + Mechanical): long bars of silver corrugated metal with ribbon windows
   // over a gold base storey, under tall steel sun canopies
   LANDMARK_STYLES.push({ re: /^Engineering IV$/, s: { wall: 'metal_silver', panel: 0, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, win: 'ribbon', winSpacing: 3.0,

@@ -67,6 +67,7 @@ export function createMaterials(manifest, anisotropy = 8) {
   proc('metal_silver', 'metal', { metal: '#aeb3b6' });
   proc('metal_silver_glass', 'metal', { metal: '#aeb3b6', glassReflect: 0.38 });
   proc('pac_glass', 'metal', { metal: '#a9b7b8', glassReflect: 0.7 });
+  proc('dark_glass', 'metal', { metal: '#33383d', glassReflect: 0.8 });   // smoked curtain wall (Grant M. Brown Engineering)
   proc('metal_dark', 'metal', { metal: '#4c4f52' });
   proc('metal_bronze', 'metal', { metal: '#6d6459' });
   proc('metal_red', 'metal', { metal: '#7d2e25' });
@@ -1224,10 +1225,12 @@ function addPacShells(bucket, s, pad, seed) {
   }
   // striped silver stair tower at the north-east end and a red-capped glass lantern on the middle roof
   {
-    const iT = N - 3, tx = pts[iT + 1][0] - pts[iT - 1][0], tz = pts[iT + 1][1] - pts[iT - 1][1], angT = Math.atan2(tz, tx);
-    const cT = at(iT, C.D[2] + 6, 0);
-    addLandmarkBox(bucket, { c: [cT[0], cT[2]], w: 9, d: 9, h: C.E[2] + 5.5, ang: angT, mat: 'metal_silver', win: 'none', copingMat: 'fascia_red', roofMat: 'roof_metal_red' }, pad, seed);
-    const iL = Math.round(N * 0.24), lx = pts[iL + 1][0] - pts[iL - 1][0], lz = pts[iL + 1][1] - pts[iL - 1][1];
+    // placement from the aerial reference photos: the red-capped silver element sits low, on the middle roof near the
+    // north-east end; the glazed lantern is on the upper roof about a third of the way from the south-west end
+    const iT = N - 4, tx = pts[iT + 1][0] - pts[iT - 1][0], tz = pts[iT + 1][1] - pts[iT - 1][1], angT = Math.atan2(tz, tx);
+    const cT = at(iT, C.D[1] + 4, 0);
+    addLandmarkBox(bucket, { c: [cT[0], cT[2]], w: 8, d: 7, h: C.E[1] + 3.4, ang: angT, mat: 'metal_silver', win: 'none', copingMat: 'fascia_red', roofMat: 'roof_metal_red' }, pad, seed);
+    const iL = Math.round(N * 0.34), lx = pts[iL + 1][0] - pts[iL - 1][0], lz = pts[iL + 1][1] - pts[iL - 1][1];
     const cL = at(iL, C.D[2] + 4.5, 0);
     addLandmarkBox(bucket, { c: [cL[0], cL[2]], w: 13, d: 6, y0: C.E[2] + 0.4, h: C.E[2] + 4.6, ang: Math.atan2(lz, lx), mat: s.wall, spacing: 1.6, winH: 3.0, floorH: 4.2, copingMat: 'fascia_red', roofMat: 'roof_metal_red' }, pad, seed);
   }
