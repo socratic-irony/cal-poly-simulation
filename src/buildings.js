@@ -604,7 +604,7 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
           if (b._split && !insideRing(ux0, uz0, P)) continue;
           if (inVault(ux0, uz0)) continue;
           const big = uw * ud > 22;
-          const key = big ? 'concrete_light' : 'metal_silver';
+          const key = big ? (s.unitMat || 'concrete_light') : 'metal_silver';
           addBox(bucket(key), ux0, pad + ub - 0.05, uz0, Math.max(0.6, uw - 0.15), Math.max(0.4, uh), Math.max(0.6, ud - 0.15), ua, big ? 1.8 : 1.1,
             big ? [[0, pad + ub, 1, 3.4], [0, 0, 0, seed], [uh + ub, 0, 0, 0], [0, 0, 0.1, 0]] : undefined);
         }

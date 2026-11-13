@@ -49,11 +49,11 @@ export const LANDMARK_STYLES = [
 const FROST_GLASS = {
   wall: 'metal_silver_glass', win: 'curtain', winW: 1.5, winH: 2.6, winSpacing: 1.6, floorH: 4.4, pal: 0, panel: 0, lites: 0, trim: 0,
   recess: 0.1, parapet: 0.5, coping: 1, forceH: 18.2, flatForce: 'roof_flat_new', noUnits: 1,
-  fins: 1.6, finMat: 'coping', finDepth: 0.55, finW: 0.07, finFrom: 0,
+  fins: 1.6, finMat: 'coping', finDepth: 0.55, finW: 0.07, finFrom: 4.55,
   bands: [{ y: 4.4, h: 0.3, out: 0.6, mat: 'coping' }, { y: 8.8, h: 0.3, out: 0.6, mat: 'coping' }, { y: 13.2, h: 0.3, out: 0.6, mat: 'coping' }],
 };
 const FROST_BRICK = (h) => ({
-  wall: 'brick_buff', win: 'grid', winW: 1.0, winH: 2.7, winSpacing: 3.9, floorH: 4.4, pal: 0, panel: 0, lites: 0, trim: 0,
+  wall: 'brick_buff', win: 'grid', winW: 0.9, winH: 2.9, winSpacing: 5.4, floorH: 4.4, pal: 0, panel: 0, lites: 0, trim: 0,
   recess: 0.32, parapet: 0.35, coping: 1, forceH: h, fins: 0, bands: null, frame: 'dark', flatForce: 'roof_flat_new', noUnits: 1,
 });
 const FROST_WAIST = { a: [70, -100], b: [70, -180], w: 6.5, h: 8.6 };
@@ -65,7 +65,12 @@ const BAKER = {
   wall: 'brick_terracotta', panel: 0, stone: 0, belt: 0, lites: 0, trim: 0, coping: 0, frame: 'dark',
   win: 'grid', winW: 2.5, winH: 1.9, winSpacing: 3.4, recess: 0.28, atrium: null,
   bands: [{ y: 0, top: 1, h: 1.5, out: 0.18, mat: 'metal_dark' }],
-  boxes: [{ c: [88.35, -54.1], w: 17, d: 6, h: 22.5, ang: -0.237, louvers: 1.05, louverFrom: 4.6, louverFaces: [1, 2, 3], spacing: 1.7, winH: 3.0, floorH: 4.3 }],
+  unitMat: 'metal_dark', tierWall: 'metal_dark', tierBlank: 0,
+  boxes: [
+    // thin entrance canopy projecting from the foot of the lantern toward the lawn
+    { c: [89.4, -49.6], w: 20, d: 7.5, y0: 4.25, h: 4.6, ang: -0.237, mat: 'metal_dark', win: 'none', coping: 0, roofMat: 'roof_metal_silver' },
+    { c: [88.35, -54.1], w: 17, d: 6, h: 22.5, ang: -0.237, louvers: 1.05, louverFrom: 4.6, louverFaces: [1, 2, 3], spacing: 1.7, winH: 3.0, floorH: 4.3 },
+  ],
 };
 
 LANDMARK_STYLES.push(
@@ -74,6 +79,12 @@ LANDMARK_STYLES.push(
     s: {
       atrium: null, noLidar: 1,
       passages: [FROST_WAIST],
+      // glazed atrium roof between the towers, and dark mechanical screens set back on the tallest blocks
+      boxes: [
+        { c: [49, -117], w: 28, d: 12, y0: 18.6, h: 21.2, ang: 0, mat: 'pac_glass', spacing: 1.6, winH: 2.4, floorH: 2.8, copingMat: 'coping', roofMat: 'roof_metal_silver' },
+        { c: [20, -116], w: 10, d: 12, y0: 22.8, h: 25.4, ang: 0, mat: 'metal_dark', win: 'none', coping: 0, roofMat: 'roof_flat_new' },
+        { c: [78, -128], w: 9, d: 14, y0: 23.8, h: 26.4, ang: 0, mat: 'metal_dark', win: 'none', coping: 0, roofMat: 'roof_flat_new' },
+      ],
       splits: [{ a: [31, -200], b: [31, -50] }, { a: [89, -200], b: [89, -50] }, { a: [-50, -128], b: [200, -128] }, { a: [-50, -150], b: [200, -150] }],
       cells: (x, z, lift) => {
         if (lift) return FROST_GLASS;
