@@ -120,7 +120,7 @@ export class SkyRig {
     this.sky.material.uniforms.uEnvDesat.value = 0;
     this.scene.add(this.sky);
     this.scene.environment = this.envTarget.texture;
-    this.scene.environmentIntensity = 0.55 * (this.envK ?? 1);
+    this.scene.environmentIntensity = 0.85 * (this.envK ?? 1);   // sky fill: shaded walls read at ~1/5 of sunlit ones, as in photos
   }
 
   // keep the shadow frustum centred (and texel-snapped) on the area the camera is looking at

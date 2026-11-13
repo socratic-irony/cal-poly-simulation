@@ -64,7 +64,10 @@ function leafTexture(palette, { n = 150, leaf = [10, 22], width = [5, 10], seed 
       // darker leaves first (inner), lighter highlights last (outer, upper)
       const k = pass === 0 ? r() * 0.4 : pass === 1 ? 0.3 + r() * 0.4 : 0.6 + r() * 0.4;
       const hl = (1 - y / S) * 0.35 * (pass / 2);
-      const col = palette[Math.min(palette.length - 1, Math.floor(clamp(k + hl, 0, 0.999) * palette.length))];
+      // leaves toward the sparse rim of each clump are the sunlit, translucent ones: lighter, so crown silhouettes
+      // end in bright foliage instead of a dark scribbled outline
+      const rim = Math.pow(d / (S * 0.48), 1.5) * 0.3;
+      const col = palette[Math.min(palette.length - 1, Math.floor(clamp(k * (1 - 0.5 * rim) + hl + rim, 0, 0.999) * palette.length))];
       ctx.save(); ctx.translate(x, y); ctx.rotate(r() * Math.PI * 2);
       ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(0, 0, l / 2, w / 2, 0, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
@@ -419,9 +422,20 @@ function patchFoliage(mat) {
   float sw = sin(uTime * 1.3 + ip.x * 0.37 + ip.z * 0.23 + position.y * 0.5) * 0.06 * smoothstep(1.0, 12.0, position.y);
   transformed.x += sw; transformed.z += sw * 0.7;`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>',
-      THREE.ShaderChunk.normal_fragment_begin.replace('gl_FrontFacing ? 1.0 : - 1.0', '1.0'));
+      THREE.ShaderChunk.normal_fragment_begin.replace('gl_FrontFacing ? 1.0 : - 1.0', '1.0'))
+      // leaf cards seen edge-on collapse into dark strokes that outline every clump: fade them out
+      .replace('#include <map_fragment>', `#include <map_fragment>
+  { vec3 gN = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+    float facing = abs(dot(gN, normalize(vViewPosition)));
+    diffuseColor.a *= smoothstep(0.16, 0.42, facing); }`)
+      // leaves transmit light: foliage in the crown's own shadow keeps a share of the sun's colour
+      // instead of dropping to near-black (which read as dark outlines around every clump)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+  #if NUM_DIR_LIGHTS > 0
+    reflectedLight.indirectDiffuse += diffuseColor.rgb * directionalLights[0].color * vec3(0.105, 0.125, 0.07);
+  #endif`);
   };
-  mat.customProgramCacheKey = () => 'foliage-v1';
+  mat.customProgramCacheKey = () => 'foliage-v3';
 }
 
 // ------------------------------------------------------------------ placement

@@ -492,6 +492,28 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       wE.tri(v1, v0, v3); wE.tri(v1, v3, v2);
     }
 
+    // ---- courtyard walls: the inner rings of buildings with holes (Dexter, ...) face their courtyards
+    if (b.holes && !b._split) {
+      for (let H of b.holes) {
+        if (ringArea(H) > 0) H = revRing(H);
+        const m = H.length / 2;
+        for (let i = 0; i < m; i++) {
+          const p = [H[i * 2], H[i * 2 + 1]], q = [H[((i + 1) % m) * 2], H[((i + 1) % m) * 2 + 1]];
+          const dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz);
+          if (len < 0.05) continue;
+          const nx = dz / len, nz = -dx / len;
+          const cols = Math.max(1, Math.round(len / spBase)), sp = len / cols;
+          const ek = len < s.winW + 0.9 && kind !== 6 ? 0 : kind;
+          const Bh = [s.winW, s.winH, ek, seed], Ch = [s.h, 0, 0, 0], Dh = [bandFlag(s), (s.trim ? 1 : 0) + (s.lites ? 2 : 0), s.recess ?? 0.18, (s.pal || 0) / 7];
+          const v0 = wb.vert(p[0], yBot, p[1], nx, 0, nz, 0, yBot / ts, [0, pad, sp, s.floorH], Bh, Ch, Dh);
+          const v1 = wb.vert(q[0], yBot, q[1], nx, 0, nz, len / ts, yBot / ts, [len, pad, sp, s.floorH], Bh, Ch, Dh);
+          const v2 = wb.vert(q[0], yTop, q[1], nx, 0, nz, len / ts, yTop / ts, [len, pad, sp, s.floorH], Bh, Ch, Dh);
+          const v3 = wb.vert(p[0], yTop, p[1], nx, 0, nz, 0, yTop / ts, [0, pad, sp, s.floorH], Bh, Ch, Dh);
+          wb.tri(v1, v0, v3); wb.tri(v1, v3, v2);
+        }
+      }
+    }
+
     // ---- projecting glazed entry atrium (Baker / Frost / PAC) on the chosen entrance bay
     if (s.atrium && doorEdge >= 0 && !(b._part > 0)) {
       const i = doorEdge;

@@ -157,9 +157,9 @@ async function init() {
     composer.setPixelRatio(renderer.getPixelRatio());
     composer.setSize(w, h);
     const ao = new N8AOPass(scene, camera, w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
-    ao.configuration.aoRadius = 5.0;
+    ao.configuration.aoRadius = 3.5;
     ao.configuration.distanceFalloff = 1.2;
-    ao.configuration.intensity = 3.2;
+    ao.configuration.intensity = 2.0;
     ao.configuration.aoSamples = 12;
     ao.configuration.denoiseSamples = 6;
     ao.configuration.denoiseRadius = 10;
