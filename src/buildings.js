@@ -485,11 +485,16 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
         const u = Math.abs(mx * ca + mz * sa), v = Math.abs(-mx * sa + mz * ca); return u <= vt.L / 2 + 3 && v <= vt.W / 2 + 3 && (u >= vt.L / 2 - 3 || v >= vt.W / 2 - 3); });
       const wE = onV ? bucket(s.vaultWall) : wb, tE = onV ? (mats[s.vaultWall]?.userData.size || 1) : ts;
       const BE = onV ? [s.winW, s.winH, 0, seed] : B, CE = onV ? [s.h, 0, 0, 0] : C;
-      const v0 = wE.vert(p[0], wallFrom, p[1], nS[0], 0, nS[1], 0, wallFrom / tE, [0, pad, sp, s.floorH], BE, CE, D);
-      const v1 = wE.vert(q[0], wallFrom, q[1], nE[0], 0, nE[1], len / tE, wallFrom / tE, [len, pad, sp, s.floorH], BE, CE, D);
-      const v2 = wE.vert(q[0], yTop, q[1], nE[0], 0, nE[1], len / tE, yTop / tE, [len, pad, sp, s.floorH], BE, CE, D);
-      const v3 = wE.vert(p[0], yTop, p[1], nS[0], 0, nS[1], 0, yTop / tE, [0, pad, sp, s.floorH], BE, CE, D);
-      wE.tri(v1, v0, v3); wE.tri(v1, v3, v2);
+      // optional differently tinted lower storeys (yakʔitʸutʸu's cream bases): the wall is emitted in two stacked strips
+      const ySplit = s.basePal != null && s.baseH && pad + s.baseH > wallFrom + 0.5 && pad + s.baseH < yTop - 0.5 ? pad + s.baseH : null;
+      const strips = ySplit ? [[wallFrom, ySplit, [D[0], D[1], D[2], s.basePal / 7]], [ySplit, yTop, D]] : [[wallFrom, yTop, D]];
+      for (const [ya, yb, Dk] of strips) {
+        const v0 = wE.vert(p[0], ya, p[1], nS[0], 0, nS[1], 0, ya / tE, [0, pad, sp, s.floorH], BE, CE, Dk);
+        const v1 = wE.vert(q[0], ya, q[1], nE[0], 0, nE[1], len / tE, ya / tE, [len, pad, sp, s.floorH], BE, CE, Dk);
+        const v2 = wE.vert(q[0], yb, q[1], nE[0], 0, nE[1], len / tE, yb / tE, [len, pad, sp, s.floorH], BE, CE, Dk);
+        const v3 = wE.vert(p[0], yb, p[1], nS[0], 0, nS[1], 0, yb / tE, [0, pad, sp, s.floorH], BE, CE, Dk);
+        wE.tri(v1, v0, v3); wE.tri(v1, v3, v2);
+      }
     }
 
     // ---- courtyard walls: the inner rings of buildings with holes (Dexter, ...) face their courtyards

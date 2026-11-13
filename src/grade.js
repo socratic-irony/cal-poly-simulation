@@ -6,7 +6,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 export const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
-    uSat: { value: 0.84 }, uContrast: { value: 1.07 }, uVig: { value: 0.24 }, uGrain: { value: 0.02 }, uTime: { value: 0 },
+    uSat: { value: 0.89 }, uContrast: { value: 1.10 }, uVig: { value: 0.24 }, uGrain: { value: 0.02 }, uTime: { value: 0 },
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `

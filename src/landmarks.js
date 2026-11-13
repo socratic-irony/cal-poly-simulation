@@ -115,7 +115,7 @@ LANDMARK_STYLES.push({
 const YTT = {
   wall: 'stucco_white', pal: 0, panel: 0, stone: 0, belt: 0, trim: 0, lites: 0, coping: 1, frame: 'dark',
   win: 'grid', winW: 2.3, winH: 1.55, winSpacing: 3.7, floorH: 3.2, recess: 0.32, parapet: 0.45,
-  roof: 'flat', noUnits: 1, kind: 'dorm', flatForce: 'roof_flat_new',
+  roof: 'flat', noUnits: 1, kind: 'dorm', flatForce: 'roof_flat_new', baseH: 6.4, basePal: 3,
 };
 const YTT_HALLS = {
   A: { fins: ['fin_orange', 'fin_amber', 'fin_yellow'], frame: 'frame_copper', at: [[0.12, 1], [0.86, -1]] },
