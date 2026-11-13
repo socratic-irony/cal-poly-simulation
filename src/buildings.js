@@ -470,8 +470,8 @@ export function buildBuildings(data, hf, mats, roofs, lidar) {
       }
       // brick ground storey (Poly Canyon Village): a separate quad in the brick material, the stucco starts above it
       if (s.brickBase && !arc && s.h > s.floorH * 1.5) {
-        const yB = pad + s.floorH, bb = bucket('brick_red');
-        const Db = [0, 0, D[2], D[3]];
+        const yB = pad + s.floorH, bb = bucket(s.baseMat || 'brick_red');
+        const Db = [s.baseMat ? 3 : 0, 0, D[2], D[3]];
         const b0 = bb.vert(p[0], wallFrom, p[1], nS[0], 0, nS[1], 0, 0, [0, pad, sp, s.floorH], B, C, Db);
         const b1 = bb.vert(q[0], wallFrom, q[1], nE[0], 0, nE[1], len, 0, [len, pad, sp, s.floorH], B, C, Db);
         const b2 = bb.vert(q[0], yB, q[1], nE[0], 0, nE[1], len, 1, [len, pad, sp, s.floorH], B, C, Db);

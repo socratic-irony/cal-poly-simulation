@@ -216,7 +216,11 @@ LANDMARK_STYLES.push({
     },
   });
   // the rest of the Engineering Plaza group shares the gold panels and floating sun canopies
-  LANDMARK_STYLES.push({ re: /^(Engineering IV|Advanced Technologies Laboratory)$/, s: { wall: 'ochre_panel', panel: 1, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, canopyLift: 1.6, canopyOut: 2.4 } });
+  LANDMARK_STYLES.push({ re: /^Advanced Technologies Laboratory$/, s: { wall: 'ochre_panel', panel: 1, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, canopyLift: 1.6, canopyOut: 2.4 } });
+  // Engineering IV (AC Martin, 2007; Aerospace + Mechanical): long bars of silver corrugated metal with ribbon windows
+  // over a gold base storey, under tall steel sun canopies
+  LANDMARK_STYLES.push({ re: /^Engineering IV$/, s: { wall: 'metal_silver', panel: 0, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, win: 'ribbon', winSpacing: 3.0,
+    brickBase: 1, baseMat: 'ochre_panel', tierWall: 'ochre_panel', tierBlank: 0, canopyLift: 2.4, canopyOut: 2.8 } });
 }
 
 export function applyLandmarkStyle(b) {
