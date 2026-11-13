@@ -228,6 +228,10 @@ LANDMARK_STYLES.push({
   });
   // the rest of the Engineering Plaza group shares the gold panels and floating sun canopies
   LANDMARK_STYLES.push({ re: /^Advanced Technologies Laboratory$/, s: { wall: 'ochre_panel', panel: 1, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, canopyLift: 1.6, canopyOut: 2.4 } });
+  // Reinhold Aerospace Engineering Laboratories (same complex): a two-storey lab block in the family palette
+  LANDMARK_STYLES.push({ re: /^Reinhold Aerospace/, s: { wall: 'metal_silver', roof: 'flat', panel: 0, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, lites: 0,
+    win: 'ribbon', winSpacing: 3.0, floorH: 3.9, brickBase: 1, baseMat: 'ochre_panel', parapet: 0.5, coping: 1,
+    bands: [{ y: 0, top: 1, h: 0.5, out: 0.12, mat: 'metal_dark' }] } });
   // Engineering IV (AC Martin, 2007; Aerospace + Mechanical): long bars of silver corrugated metal with ribbon windows
   // over a gold base storey, under tall steel sun canopies
   LANDMARK_STYLES.push({ re: /^Engineering IV$/, s: { wall: 'metal_silver', panel: 0, stone: 0, pal: 0, frame: 'dark', trim: 0, belt: 0, win: 'ribbon', winSpacing: 3.0,
