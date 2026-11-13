@@ -59,7 +59,8 @@ src/main.js        scene setup, loading, post-processing (N8AO, bloom, grade, SM
 src/ground.js      OSM + aerial -> ground splat maps, terrain shader (no-tile sampling, aerial colour transfer), contact shadows
 src/buildings.js   footprints -> walls / roofs / portals / colonnades / signs / downspouts, roof + facade material set
 src/landmarks.js   hand-tuned landmark overrides (Union, Frost, Baker, Rec Center, yakʔitʸutʸu halls, Construction Innovations
-                   Center): breezeways cut through footprints, glazed lounge 'lanterns',
+                   Center, Kennedy Library, Bonderson): breezeways cut through footprints, stacked floor plates measured
+                   from LiDAR (addPlates in buildings.js), glazed lounge 'lanterns',
                    blocks with different styles, projecting bands, glazed lanterns -- merged at load time, no data rebuild
 src/pacplaza.js    Performing Arts Center plaza (paving, bollards, benches, wire-mesh globes); PAC shells live in buildings.js
 src/atmosphere.js  aerial perspective: height-dependent haze + sun-side forward scattering (replaces three's fog chunks)
