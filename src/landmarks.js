@@ -234,6 +234,15 @@ LANDMARK_STYLES.push({
     brickBase: 1, baseMat: 'ochre_panel', tierWall: 'ochre_panel', tierBlank: 0, canopyLift: 2.4, canopyOut: 2.8 } });
 }
 
+// ---- Aero Hangar: the south-east gable gets a hangar-door track and the edges of six sliding leaves
+// (door side assumed from the apron / parking layout; the vault itself is measured by LiDAR)
+{
+  const c = [-299.41, -543.17], e1 = [Math.cos(2.2944), Math.sin(2.2944)], u = [Math.cos(0.7242), Math.sin(0.7242)];
+  const end = [c[0] - e1[0] * 15.25, c[1] - e1[1] * 15.25];
+  const box = (off, w, y0, h, d = 0.3) => ({ c: [end[0] + u[0] * off, end[1] + u[1] * off], w, d, y0, h, ang: 0.7242, mat: 'metal_dark', win: 'none', coping: 0, roofMat: 'roof_metal_silver' });
+  LANDMARK_STYLES.push({ re: /^Aero Hang[ae]r$/, s: { boxes: [box(0, 22.5, 6.2, 6.65, 0.45), ...[-11, -7.3, -3.65, 0, 3.65, 7.3, 11].map((o) => box(o, 0.16, 0, 6.2)), box(0, 22.5, 0, 0.12, 0.5)] } });
+}
+
 export function applyLandmarkStyle(b) {
   if (!b.n || b._lmDone) return;
   b._lmDone = true;
