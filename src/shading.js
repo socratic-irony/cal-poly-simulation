@@ -220,7 +220,7 @@ float rectM(vec2 p, vec2 lo, vec2 hi, float aa){
   return a.x*a.y*b.x*b.y;
 }
 vec3 gWallN = vec3(0.0, 0.0, 1.0); float gWallRough = 0.9; float gWallMetal = 0.0;
-float gWin = 0.0; float gFrame = 0.0; float gLit = 0.0;
+float gWin = 0.0; float gFrame = 0.0; float gLit = 0.0; vec2 gPane = vec2(0.5);
 vec3 gRoom = vec3(0.0);
 // interior mapping: trace the view ray into a box-shaped room behind the glass (x along wall, y up, z into the building)
 vec3 roomColor(float cu, float cv, float sp, float fh, float rnd, float rnd2){
@@ -414,6 +414,7 @@ const FACADE_FRAG_MAIN = /* glsl */ `
     float cu = vA.x - ci * sp;
     float rnd = hash12(vec2(fi * 13.0 + ci, seed * 91.0));
     float rnd2 = hash12(vec2(fi * 7.0 + ci * 3.0, seed * 53.0 + 1.0));
+    gPane = vec2(rnd, rnd2);
     vec3 frameCol = seed > 0.97 ? vec3(0.13, 0.27, 0.19) : seed > 0.6 ? vec3(0.13, 0.12, 0.11) : (seed > 0.3 ? vec3(0.78, 0.77, 0.73) : vec3(0.34, 0.35, 0.36));
     vec3 glassCol = mix(vec3(0.050, 0.072, 0.095), vec3(0.120, 0.150, 0.175), rnd);
     float inside = 0.0, frame = 0.0, sillM = 0.0, edgeD = 1.0, topD = 1.0, reveal = 0.0, trimM = 0.0;
@@ -612,22 +613,32 @@ metalnessFactor = mix(metalnessFactor, 0.55, gFrame);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
 totalEmissiveRadiance += vec3(1.0, 0.74, 0.40) * gLit * uNight * 2.4;
 totalEmissiveRadiance += gRoom * gWin * mix(0.16, 0.05, uNight);
-{ // sky reflected in the glass: Schlick Fresnel (double glazing, F0 ~ 0.08) x clear-sky gradient above, darker surroundings below
-  vec3 Vv = normalize(vViewPosition);
-  vec3 Rw = inverseTransformDirection(reflect(-Vv, normal), viewMatrix);
-  float cosT = clamp(dot(normal, Vv), 0.0, 1.0);
+{ // what the glass reflects: Schlick Fresnel (double glazing, F0 ~ 0.08) x clear-sky gradient, with a dark, ragged
+  // line of trees / buildings near the horizon and a slightly different tilt for every pane (real glazing is never flat)
+  vec3 Vw = normalize(cameraPosition - vWP);
+  vec3 Nw = normalize(inverseTransformDirection(normal, viewMatrix));
+  vec3 Tw = normalize(vec3(-Nw.z, 0.0, Nw.x) + 1e-5);
+  vec3 Np = normalize(Nw + Tw * (gPane.x - 0.5) * 0.045 + vec3(0.0, 1.0, 0.0) * (gPane.y - 0.5) * 0.03);
+  vec3 Rw = reflect(-Vw, Np);
+  float cosT = clamp(dot(Np, Vw), 0.0, 1.0);
   float Fr = 0.08 + 0.92 * pow(1.0 - cosT, 5.0);
-  vec3 skyR = mix(uSkyHor, uSkyZen, pow(clamp(Rw.y, 0.0, 1.0), 0.42));
-  skyR = mix(skyR, vec3(2.0, 1.25, 0.6), uSkyWarm * pow(1.0 - clamp(Rw.y, 0.0, 1.0), 3.0) * 0.7);   // sunset band near the horizon
-  vec3 refl = mix(vec3(0.10, 0.10, 0.09), skyR, smoothstep(-0.04, 0.10, Rw.y));
-  totalEmissiveRadiance += gWin * Fr * refl * (1.0 - uNight) * 0.85;
+  float ry = clamp(Rw.y, 0.0, 1.0);
+  vec3 skyR = mix(uSkyHor, uSkyZen, pow(ry, 0.42));
+  skyR = mix(skyR, vec3(2.0, 1.25, 0.6), uSkyWarm * pow(1.0 - ry, 3.0) * 0.7);   // sunset band near the horizon
+  float az = atan(Rw.z, Rw.x);
+  float line = 0.05 + 0.20 * fbm2(vec2(az * 5.0 + vWP.x * 0.011, vWP.z * 0.011)) + 0.05 * vnoise2(vec2(az * 37.0, 1.7));
+  vec3 land = mix(vec3(0.045, 0.07, 0.035), vec3(0.20, 0.19, 0.16), smoothstep(0.55, 0.8, vnoise2(vec2(az * 9.0 + 4.0, vWP.y * 0.02))));
+  land *= 0.6 + 0.8 * vnoise2(vec2(az * 60.0, Rw.y * 40.0));
+  vec3 refl = mix(vec3(0.10, 0.10, 0.09), land, smoothstep(-0.04, 0.02, Rw.y));
+  refl = mix(refl, skyR, smoothstep(line, line + 0.035, Rw.y));
+  totalEmissiveRadiance += gWin * Fr * refl * vec3(0.84, 0.96, 1.0) * (1.0 - uNight) * 0.9;   // faint blue-green of coated glazing
 }`)
       .replace('#include <normal_fragment_maps>', `
 vec3 mapN = gWallN; mapN.xy *= normalScale;
 normal = normalize(tbn * mapN);
 normal = normalize(mix(normal, nonPerturbedNormal, clamp(gWin + gFrame, 0.0, 1.0)));`);
   };
-  mat.customProgramCacheKey = () => 'facade-v5-' + mode;
+  mat.customProgramCacheKey = () => 'facade-v6-' + mode;
   void FLAT_DUMMY;
 }
 
