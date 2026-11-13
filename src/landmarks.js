@@ -100,6 +100,7 @@ const REC_PAVILION = {
 LANDMARK_STYLES.push({
   re: /^Recreation Center$/,
   s: {
+    vaultRoof: 'roof_silver_clean',
     splits: [{ a: [168.7, 319.2], b: [208.3, 296.6] }],
     cells: (x, z) => {
       // the block on the SE side of the cut line (toward the street corner)

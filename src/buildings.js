@@ -123,6 +123,7 @@ export function createMaterials(manifest, anisotropy = 8) {
   mats.roof_flat = makeRoofMaterial('flat', '#aeb0ac', '#8c8f8c', { seed: 6, side: THREE.FrontSide });
   mats.roof_flat_b = makeRoofMaterial('flat', '#6c6d6b', '#52534f', { seed: 7, side: THREE.FrontSide });
   mats.roof_flat_c = makeRoofMaterial('flat', '#8a7a66', '#6e6253', { seed: 8, side: THREE.FrontSide });
+  mats.roof_silver_clean = makeRoofMaterial('seam', '#c6ccd0', '#c6ccd0', { seed: 12, aerial: false });   // standing seam without the orthophoto tint (which reads blue in shadow)
   mats.roof_flat_new = makeRoofMaterial('flat', '#c4c5c1', '#a3a5a2', { seed: 11, side: THREE.FrontSide, aerial: false });   // built after the orthophoto
   for (const k of Object.keys(mats)) if (k.startsWith('roof_')) mats[k].userData.size = 1;
   mats.metal_silver_roof = mats.roof_metal_silver;
