@@ -360,8 +360,21 @@ ADDM(6, sB.r, vec3(1.45, 1.28, 1.05) * (0.8 + 0.5 * fbm2(gp * 0.05)), 1.0)
   vec3 lt = mix(g0, g1, smoothstep(0.42, 0.72, lawnN));
   lt = mix(lt, g2, smoothstep(0.62, 0.9, fbm2(gp * 0.13 + 11.0)) * 0.7);
   lt = mix(lt, vec3(1.1, 0.98, 0.7), pave * 0.35 * smoothstep(0.4, 0.8, vnoise2(gp * 0.7)));
-  lt = desat(lt * macro * meso, 0.66);
+  lt = desat(lt * macro * meso, 0.74);
   lt *= vec3(1.18, 1.0, 1.7);
+  // turf detail close to the camera: blade-scale grain, clumps of darker coarse grass, pale thatch and clover patches
+  {
+    float gd = length(cameraPosition - vWPos);
+    float nearK = 1.0 - smoothstep(25.0, 90.0, gd);
+    float blade = vnoise2(gp * 34.0) * 0.6 + vnoise2(gp * vec2(11.0, 13.0) + 5.0) * 0.4;
+    lt *= 1.0 + (blade - 0.5) * 0.34 * nearK;
+    float clumpG = smoothstep(0.60, 0.78, fbm2(gp * 0.9 + 17.0));
+    lt = mix(lt, lt * vec3(0.74, 0.90, 0.62), clumpG * 0.55 * (0.4 + 0.6 * nearK));
+    float thatch = smoothstep(0.66, 0.84, fbm2(gp * 0.33 + 41.0));
+    lt = mix(lt, lt * vec3(1.22, 1.13, 0.82), thatch * 0.45);
+    float clover = smoothstep(0.72, 0.8, vnoise2(gp * 0.55 + 77.0)) * smoothstep(0.4, 0.7, vnoise2(gp * 6.0));
+    lt = mix(lt, lt * vec3(0.62, 1.02, 0.60), clover * 0.5 * nearK);
+  }
   // mowing stripes: 1.9 m bands along the campus grid (77 deg, the dominant building orientation); like real turf the bands
   // swap light/dark with the viewing direction (blades bent toward vs away from the viewer) and vanish seen side-on
   {
@@ -413,6 +426,6 @@ vec3 gNor = normalize(vec3(nrm.xy, max(nrm.z, 0.2)));
 }
 `);
   };
-  mat.customProgramCacheKey = () => 'terrain-v4';
+  mat.customProgramCacheKey = () => 'terrain-v5';
   return mat;
 }

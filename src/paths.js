@@ -126,8 +126,16 @@ export function buildPavements(data, hf) {
         curb.vert(x + ox, yg + CH, z + oz, 0, 1, 0, CW - 0.02, p.s, CW),
         curb.vert(x + ox, yg - 0.04, z + oz, p.nx * sgn, 0, p.nz * sgn, CW, p.s, CW),
       ];
-      if (prev) for (let c = 0; c < 3; c++) { const a0 = prev[c], b0 = prev[c + 1], d0 = rowV[c], e0 = rowV[c + 1]; curb.idx.push(a0, d0, b0, b0, d0, e0); }
-      else cap(rowV);
+      // concrete gutter pan on the street side of the curb (jointed like the sidewalk slabs)
+      {
+        const GW = 0.46, gx = -p.nx * sgn, gz = -p.nz * sgn;                 // unit vector toward the road centre
+        const ax = x + gx * CW * 0.5 * p.m, az = z + gz * CW * 0.5 * p.m, bx = ax + gx * GW, bz = az + gz * GW;
+        rowV.push(curb.vert(ax, hf.surface(ax, az) + 0.022, az, 0, 1, 0, -GW / 2, p.s, GW / 2), curb.vert(bx, hf.surface(bx, bz) + 0.022, bz, 0, 1, 0, GW / 2, p.s, GW / 2));
+      }
+      if (prev) {
+        for (let c = 0; c < 3; c++) { const a0 = prev[c], b0 = prev[c + 1], d0 = rowV[c], e0 = rowV[c + 1]; curb.idx.push(a0, d0, b0, b0, d0, e0); }
+        curb.idx.push(prev[4], rowV[4], prev[5], prev[5], rowV[4], rowV[5]);
+      } else cap(rowV);
       prev = rowV;
     }
     if (prev) cap(prev);

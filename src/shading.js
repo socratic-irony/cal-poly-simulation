@@ -692,6 +692,18 @@ vec3 pavePattern(vec2 p, float hw){
     float crack = smoothstep(0.012, 0.0, abs(fbm2(p * 1.6 + t * 5.0) - 0.5) - 0.0) * step(0.62, t);
     c *= 1.0 - 0.16 * crack;
     c = mix(c, c * vec3(0.8, 0.92, 0.72), smoothstep(0.35, 0.0, edge) * 0.35 * vnoise2(p * 3.0));  // algae at the edge
+    // the things that make poured concrete read as real: the odd replaced slab (paler, cleaner), a felt expansion joint
+    // every fourth slab, exposed aggregate speckle, chewing-gum / oil spots and drifts of leaf litter along the edges
+    float fresh = step(0.92, hash11(slab * 3.1 + 7.0));
+    c = mix(c, vec3(0.70, 0.685, 0.65) * (0.95 + 0.08 * vnoise2(p * 2.0)), fresh * 0.75);
+    float exp4 = step(mod(slab, 4.0), 0.5) * (1.0 - smoothstep(0.012, 0.03, jf * 1.52));
+    c *= 1.0 - 0.45 * exp4;
+    c *= 0.93 + 0.14 * hash12(floor(p * 90.0));
+    vec2 gc = floor(p * 3.3); vec2 gf = fract(p * 3.3) - 0.5 - (vec2(hash12(gc + 3.0), hash12(gc + 8.0)) - 0.5) * 0.6;
+    float gum = (1.0 - smoothstep(0.035, 0.06, length(gf))) * step(0.93, hash12(gc + 1.7));
+    c *= 1.0 - 0.45 * gum;
+    float litter = smoothstep(0.55, 0.75, fbm2(p * vec2(2.2, 0.6) + 21.0)) * smoothstep(0.55, 0.0, edge);
+    c = mix(c, vec3(0.33, 0.27, 0.17) * (0.7 + 0.6 * hash12(floor(p * 40.0))), litter * 0.55);
     gPN = normalize(vec3(0.0, (jf < 0.5 ? 1.0 : -1.0) * max(joint, 0.0) * 0.6, 1.0));
     gPR = 0.9;
     return c;
@@ -713,7 +725,7 @@ export function makePavementMaterial(kind /* 'walk' | 'steps' | 'paver' */) {
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = gPR;')
       .replace('#include <normal_fragment_maps>', 'vec3 mapN = gPN; normal = normalize(tbn * mapN);');
   };
-  m.customProgramCacheKey = () => 'pave-' + kind;
+  m.customProgramCacheKey = () => 'pave-v2-' + kind;
   return m;
 }
 
