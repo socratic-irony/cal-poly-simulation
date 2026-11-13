@@ -412,7 +412,7 @@ function patchFoliage(mat) {
     shader.uniforms.uTime = { value: 0 };
     mat.userData.shader = shader;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying vec3 vFolW; varying float vFolH;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
 #ifdef USE_INSTANCING
   vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
@@ -420,11 +420,29 @@ function patchFoliage(mat) {
   vec3 ip = vec3(0.0);
 #endif
   float sw = sin(uTime * 1.3 + ip.x * 0.37 + ip.z * 0.23 + position.y * 0.5) * 0.06 * smoothstep(1.0, 12.0, position.y);
-  transformed.x += sw; transformed.z += sw * 0.7;`);
+  transformed.x += sw; transformed.z += sw * 0.7;
+#ifdef USE_INSTANCING
+  vFolW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+#else
+  vFolW = (modelMatrix * vec4(transformed, 1.0)).xyz;
+#endif
+  vFolH = position.y;`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>',
       THREE.ShaderChunk.normal_fragment_begin.replace('gl_FrontFacing ? 1.0 : - 1.0', '1.0'))
       // leaf cards seen edge-on collapse into dark strokes that outline every clump: fade them out
+      .replace('#include <common>', `#include <common>
+varying vec3 vFolW; varying float vFolH;
+float folHash(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float folNoise(vec3 x){ vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(folHash(i), folHash(i + vec3(1,0,0)), f.x), mix(folHash(i + vec3(0,1,0)), folHash(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(folHash(i + vec3(0,0,1)), folHash(i + vec3(1,0,1)), f.x), mix(folHash(i + vec3(0,1,1)), folHash(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
       .replace('#include <map_fragment>', `#include <map_fragment>
+  { // clumps of lighter and darker foliage through the crown (boughs, gaps, new growth), darker toward the underside
+    float n1 = folNoise(vFolW * 0.55), n2 = folNoise(vFolW * 1.7 + 11.0);
+    float clump = 0.62 * n1 + 0.38 * n2;
+    diffuseColor.rgb *= 0.60 + 0.80 * clump;
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 1.08, 0.80), smoothstep(0.55, 0.85, n2) * 0.5);   // sunlit yellow-green tips
+    diffuseColor.rgb *= 0.78 + 0.22 * smoothstep(1.5, 7.0, vFolH); }
   { vec3 gN = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
     float facing = abs(dot(gN, normalize(vViewPosition)));
     diffuseColor.a *= smoothstep(0.16, 0.42, facing); }`)
@@ -435,7 +453,7 @@ function patchFoliage(mat) {
     reflectedLight.indirectDiffuse += diffuseColor.rgb * directionalLights[0].color * vec3(0.105, 0.125, 0.07);
   #endif`);
   };
-  mat.customProgramCacheKey = () => 'foliage-v3';
+  mat.customProgramCacheKey = () => 'foliage-v4';
 }
 
 // ------------------------------------------------------------------ placement
