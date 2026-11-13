@@ -81,7 +81,6 @@ LANDMARK_STYLES.push(
       passages: [FROST_WAIST],
       // glazed atrium roof between the towers (the interior photos show a top-lit atrium; its exact outline is estimated)
       boxes: [
-        { c: [49, -117], w: 28, d: 12, y0: 18.6, h: 21.2, ang: 0, mat: 'pac_glass', spacing: 1.6, winH: 2.4, floorH: 2.8, copingMat: 'coping', roofMat: 'roof_metal_silver' },
       ],
       splits: [{ a: [31, -200], b: [31, -50] }, { a: [89, -200], b: [89, -50] }, { a: [-50, -128], b: [200, -128] }, { a: [-50, -150], b: [200, -150] }],
       cells: (x, z, lift) => {
