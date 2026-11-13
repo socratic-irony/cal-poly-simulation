@@ -257,10 +257,11 @@ vec3 stuccoPal(float t){
 }
 
 // ---- procedural running-bond brick (returns colour; sets gWallN / gWallRough)
+float gBrickNoStagger = 0.0;      // 1 = stack bond (used for soldier courses: the caller swaps the axes)
 vec3 brickWall(vec2 p, float aa){
   const vec2 BR = vec2(0.225, 0.075);
   float row = floor(p.y / BR.y);
-  float shift = mod(row, 2.0) * 0.5 * BR.x + hash11(floor(row / 14.0) * 3.1) * 0.0;
+  float shift = (1.0 - gBrickNoStagger) * mod(row, 2.0) * 0.5 * BR.x;
   vec2 q = vec2(p.x + shift, p.y);
   vec2 cell = vec2(floor(q.x / BR.x), row);
   vec2 f = vec2(fract(q.x / BR.x), fract(q.y / BR.y));
@@ -325,7 +326,14 @@ const FACADE_FRAG_MAIN = /* glsl */ `
   float aa = max(0.010, 0.6 * max(fw.x, fw.y));
   vec3 wallCol;
   #if defined(WALL_BRICK)
-    wallCol = brickWall(vec2(vA.x, vWY), aa) * (0.95 + 0.1 * fract(seed * 3.7));
+    { // a soldier course (bricks on end) at every floor line and under the coping, as on most institutional brickwork
+      float fyB = mod(max(yRel, 0.0), max(fh, 2.0));
+      float sold = step(fh - 0.225, fyB) * step(0.3, yRel) * step(yRel, topRel);
+      float capB = step(topRel - 0.225, yRel) * step(yRel, topRel) * step(1.0, topRel);
+      if (capB > 0.5) { gBrickNoStagger = 1.0; wallCol = brickWall(vec2(yRel - (topRel - 0.225), vA.x), aa) * 0.94; }
+      else if (sold > 0.5) { gBrickNoStagger = 1.0; wallCol = brickWall(vec2(fyB - (fh - 0.225), vA.x), aa) * 0.94; }
+      else wallCol = brickWall(vec2(vA.x, vWY), aa);
+      wallCol *= 0.95 + 0.1 * fract(seed * 3.7); }
   #elif defined(WALL_METAL)
     wallCol = metalWall(vec2(vA.x, vWY), aa, seed);
   #elif defined(WALL_STUCCO)
@@ -417,7 +425,7 @@ const FACADE_FRAG_MAIN = /* glsl */ `
     gPane = vec2(rnd, rnd2);
     vec3 frameCol = seed > 0.97 ? vec3(0.13, 0.27, 0.19) : seed > 0.6 ? vec3(0.13, 0.12, 0.11) : (seed > 0.3 ? vec3(0.78, 0.77, 0.73) : vec3(0.34, 0.35, 0.36));
     vec3 glassCol = mix(vec3(0.050, 0.072, 0.095), vec3(0.120, 0.150, 0.175), rnd);
-    float inside = 0.0, frame = 0.0, sillM = 0.0, edgeD = 1.0, topD = 1.0, reveal = 0.0, trimM = 0.0;
+    float inside = 0.0, frame = 0.0, sillM = 0.0, edgeD = 1.0, topD = 1.0, reveal = 0.0, trimM = 0.0, lintelM = 0.0;
     if (kind < 1.5 || kind > 6.5) {         // punched windows with a recessed glass plane (parallax); kind 7 = round-arched head
       float sill = (fh - wh) * 0.42;
       float u0 = (sp - ww) * 0.5;
@@ -455,6 +463,7 @@ const FACADE_FRAG_MAIN = /* glsl */ `
       frame = cut * frameG;
       reveal = cut * clamp(1.0 - outerG, 0.0, 1.0);
       sillM = rectM(pc, lo - vec2(0.12, 0.14), vec2(hi.x + 0.12, lo.y - 0.03), aa);
+      if (kind < 1.5) lintelM = rectM(pc, vec2(lo.x - 0.12, hi.y + 0.005), vec2(hi.x + 0.12, hi.y + 0.085), aa);   // steel lintel
       trimM = clamp(rectM(pc, lo - vec2(0.12), hi + vec2(0.12), aa) - cut, 0.0, 1.0);
       edgeD = min(min(pg.x - u0, u0 + ww - pg.x), min(pg.y - sill, sill + wh - pg.y));
       topD = sill + wh - pg.y;
@@ -540,6 +549,9 @@ const FACADE_FRAG_MAIN = /* glsl */ `
     vec3 revealCol = wallCol * (0.48 + 0.14 * rnd2);
     wallCol = mix(wallCol, wallCol * (1.10 + 0.04 * rnd) + 0.015, trimM * trimOn);
     wallCol = mix(wallCol, wallCol * 1.12 + 0.03, sillM);
+    #ifdef WALL_BRICK
+      wallCol = mix(wallCol, vec3(0.075, 0.075, 0.08), lintelM * dcut);
+    #endif
     wallCol = mix(wallCol, revealCol, reveal);
     wallCol = mix(wallCol, frameCol, frame);
     wallCol = mix(wallCol, interior, inside);
@@ -638,7 +650,7 @@ vec3 mapN = gWallN; mapN.xy *= normalScale;
 normal = normalize(tbn * mapN);
 normal = normalize(mix(normal, nonPerturbedNormal, clamp(gWin + gFrame, 0.0, 1.0)));`);
   };
-  mat.customProgramCacheKey = () => 'facade-v6-' + mode;
+  mat.customProgramCacheKey = () => 'facade-v7-' + mode;
   void FLAT_DUMMY;
 }
 
