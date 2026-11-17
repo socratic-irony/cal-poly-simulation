@@ -195,3 +195,7 @@ Not verified / known issues:
 * Roof-type, tree-species and plaza/lawn classifications are heuristic; individual buildings can still be wrong.
 * Facade materials are only photo-matched for ~25 landmark buildings; the rest use rules (stucco palette, brick, concrete, metal).
 
+
+## License
+
+The code is released under the [MIT License](LICENSE). Third-party data, textures and photos keep their own licences; see [CREDITS.md](CREDITS.md).
